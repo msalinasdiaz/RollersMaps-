@@ -1,42 +1,76 @@
 {
   "expo": {
-    "name": "rollers-maps",
+    "name": "RollersMaps",
     "slug": "rollers-maps",
-    "version": "1.0.0",
+    "version": "1.3.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/rollersmaps-app-icon.png",
     "scheme": "rollersmaps",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/rollersmaps-app-icon.png",
+      "bundleIdentifier": "cl.santiagorollers.rollersmaps",
+      "buildNumber": "17"
     },
     "android": {
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#F8FAFC",
+        "foregroundImage": "./assets/images/rollersmaps-adaptive-foreground.png",
+        "monochromeImage": "./assets/images/rollersmaps-adaptive-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "resize",
+      "package": "cl.santiagorollers.rollersmaps",
+      "versionCode": 17,
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/rollersmaps-favicon.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#07111F",
+          "image": "./assets/images/rollersmaps-splash-icon.png",
+          "dark": {
+            "backgroundColor": "#07111F",
+            "image": "./assets/images/rollersmaps-splash-icon.png"
+          },
+          "imageWidth": 200
         }
-      ]
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "RollersMaps usa tu ubicación solo cuando eliges centrar el mapa o iniciar un registro GPS."
+        }
+      ],
+      "@maplibre/maplibre-react-native",
+      "expo-sqlite",
+      "expo-sharing",
+      "expo-image",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "dd445c40-839a-4b34-83eb-08c4abbe85c6"
+      }
     }
   }
 }

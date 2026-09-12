@@ -3,6 +3,8 @@ import { StyleSheet, View } from 'react-native';
 import Animated, { Keyframe, Easing } from 'react-native-reanimated';
 
 import classes from './animated-icon.module.css';
+
+const ROLLERSMAPS_SPLASH_ICON = require('@/assets/images/rollersmaps-splash-icon.png');
 const DURATION = 300;
 
 export function AnimatedSplashOverlay() {
@@ -62,11 +64,11 @@ export function AnimatedIcon() {
       </Animated.View>
 
       <Animated.View style={styles.background} entering={keyframe.duration(DURATION)}>
-        <div className={classes.expoLogoBackground} />
+        <div className={classes.brandIconBackground} />
       </Animated.View>
 
       <Animated.View style={styles.imageContainer} entering={logoKeyframe.duration(DURATION)}>
-        <Image style={styles.image} source={require('@/assets/images/expo-logo.png')} />
+        <Image style={styles.image} source={ROLLERSMAPS_SPLASH_ICON} contentFit="contain" />
       </Animated.View>
     </View>
   );

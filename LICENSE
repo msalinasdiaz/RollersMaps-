@@ -1,21 +1,15 @@
-The MIT License (MIT)
+RollersMaps — Licencia propietaria
 
-Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
+Copyright © 2026 Manuel Salinas. Todos los derechos reservados.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+El código fuente, diseño, marca, documentación y recursos originales de
+RollersMaps no pueden copiarse, modificarse, redistribuirse, sublicenciarse,
+publicarse ni utilizarse con fines comerciales sin autorización previa y por
+escrito de Manuel Salinas.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Esta licencia no cambia ni reemplaza las licencias de Expo, React Native,
+Supabase, MapLibre ni de las demás dependencias de terceros incluidas en el
+proyecto. Cada dependencia conserva sus propios términos y avisos.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+EL SOFTWARE SE ENTREGA “TAL CUAL”, SIN GARANTÍAS EXPRESAS O IMPLÍCITAS, EN LA
+MEDIDA PERMITIDA POR LA LEY APLICABLE.

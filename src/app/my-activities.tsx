@@ -1,0 +1,573 @@
+import { Camera, GeoJSONSource, Layer, Map, ViewAnnotation } from '@maplibre/maplibre-react-native';
+import { router } from 'expo-router';
+import * as Sharing from 'expo-sharing';
+import { StatusBar } from 'expo-status-bar';
+import { useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { captureRef } from 'react-native-view-shot';
+
+import { activityTypeLabels, type AppActivity } from '@/data/activities';
+import { useDemoSession } from '@/contexts/demo-session';
+import { useActivities } from '@/hooks/use-activities';
+import { useUserActivities, type UserActivity } from '@/hooks/use-user-activities';
+
+const transparentLogo = require('@/assets/images/rollersmaps-splash-icon.png');
+const mapStyleUrl = 'https://tiles.openfreemap.org/styles/liberty';
+
+export default function MyActivitiesScreen() {
+  const { isJoined, isSignedIn } = useDemoSession();
+  const { activities: groupActivities, isLoading: groupLoading } = useActivities(isSignedIn);
+  const {
+    activities: recordedActivities,
+    error: recordedError,
+    isLoading: recordedLoading,
+    renameActivity,
+  } = useUserActivities(isSignedIn);
+  const [section, setSection] = useState<'group' | 'gps'>('group');
+  const [editingActivity, setEditingActivity] = useState<UserActivity | null>(null);
+  const [draftTitle, setDraftTitle] = useState('');
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [shareActivity, setShareActivity] = useState<UserActivity | null>(null);
+  const [isMapReady, setIsMapReady] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+  const shareCardRef = useRef<View>(null);
+
+  const registrations = useMemo(
+    () => groupActivities
+      .filter((activity) => isJoined(activity.id))
+      .sort((left, right) => left.date.getTime() - right.date.getTime()),
+    [groupActivities, isJoined],
+  );
+
+  if (!isSignedIn) {
+    return <SignInRequired />;
+  }
+
+  const openRename = (activity: UserActivity) => {
+    setEditingActivity(activity);
+    setDraftTitle(activity.title);
+    setRenameError(null);
+  };
+
+  const saveRename = async () => {
+    if (!editingActivity) {
+      return;
+    }
+
+    setIsRenaming(true);
+    const error = await renameActivity(editingActivity.id, draftTitle);
+    setIsRenaming(false);
+    if (error) {
+      setRenameError(error);
+      return;
+    }
+    setEditingActivity(null);
+  };
+
+  const openShare = (activity: UserActivity) => {
+    if (activity.route.length < 2) {
+      Alert.alert('Falta el trazado', 'Esta actividad no alcanzó a guardar suficientes puntos GPS para crear el mapa.');
+      return;
+    }
+    setIsMapReady(false);
+    setShareActivity(activity);
+  };
+
+  const shareImage = async () => {
+    if (!shareActivity || !shareCardRef.current || !isMapReady) {
+      return;
+    }
+
+    setIsSharing(true);
+    try {
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Compartir no está disponible', 'Este dispositivo no tiene una aplicación compatible para compartir la imagen.');
+        return;
+      }
+
+      const imageUri = await captureRef(shareCardRef, {
+        format: 'png',
+        height: 1920,
+        quality: 1,
+        result: 'tmpfile',
+        width: 1080,
+      });
+      await Sharing.shareAsync(imageUri, {
+        dialogTitle: 'Compartir mi actividad de RollersMaps',
+        mimeType: 'image/png',
+        UTI: 'public.png',
+      });
+    } catch {
+      Alert.alert('No pudimos compartir', 'Inténtalo nuevamente cuando el mapa termine de cargar.');
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  return (
+    <View style={styles.screen}>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <View style={styles.header}>
+            <Pressable accessibilityLabel="Volver al inicio" accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
+              <Text style={styles.backButtonText}>‹</Text>
+            </Pressable>
+            <View style={styles.headerBrand}>
+              <Image source={transparentLogo} resizeMode="contain" style={styles.headerLogo} />
+              <Text style={styles.headerBrandText}>RollersMaps</Text>
+            </View>
+            <View style={styles.headerSpacer} />
+          </View>
+
+          <View>
+            <Text style={styles.title}>Mis actividades</Text>
+            <Text style={styles.subtitle}>Tus inscripciones y registros GPS, ordenados sin llenarte la pantalla de información.</Text>
+          </View>
+
+          <View style={styles.segmentedControl}>
+            <Pressable accessibilityRole="tab" accessibilityState={{ selected: section === 'group' }} onPress={() => setSection('group')} style={[styles.segment, section === 'group' && styles.segmentActive]}>
+              <Text style={[styles.segmentText, section === 'group' && styles.segmentTextActive]}>Inscripciones · {registrations.length}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="tab" accessibilityState={{ selected: section === 'gps' }} onPress={() => setSection('gps')} style={[styles.segment, section === 'gps' && styles.segmentActive]}>
+              <Text style={[styles.segmentText, section === 'gps' && styles.segmentTextActive]}>Registros GPS · {recordedActivities.length}</Text>
+            </Pressable>
+          </View>
+
+          {section === 'group' ? (
+            <RegistrationList activities={registrations} isLoading={groupLoading} />
+          ) : (
+            <RecordedList
+              activities={recordedActivities}
+              error={recordedError}
+              isLoading={recordedLoading}
+              onRename={openRename}
+              onShare={openShare}
+            />
+          )}
+
+          <View style={styles.futureCard}>
+            <Text style={styles.futureTitle}>Integración de salud</Text>
+            <Text style={styles.futureText}>La conexión con Google Health Connect queda contemplada para una versión futura. Hasta entonces, tus recorridos se guardan de forma privada en RollersMaps.</Text>
+          </View>
+          <Text style={styles.copyright}>© 2026 Manuel Salinas · Todos los derechos reservados</Text>
+        </ScrollView>
+      </SafeAreaView>
+
+      <RenameModal
+        activity={editingActivity}
+        error={renameError}
+        isSaving={isRenaming}
+        onCancel={() => setEditingActivity(null)}
+        onChangeTitle={setDraftTitle}
+        onSave={() => { void saveRename(); }}
+        title={draftTitle}
+      />
+      <ShareModal
+        activity={shareActivity}
+        cardRef={shareCardRef}
+        isMapReady={isMapReady}
+        isSharing={isSharing}
+        onClose={() => setShareActivity(null)}
+        onMapReady={() => setIsMapReady(true)}
+        onShare={() => { void shareImage(); }}
+      />
+    </View>
+  );
+}
+
+function RegistrationList({ activities, isLoading }: { activities: AppActivity[]; isLoading: boolean }) {
+  if (isLoading) {
+    return <LoadingState text="Cargando tus inscripciones…" />;
+  }
+  if (!activities.length) {
+    return <EmptyState title="Aún no tienes inscripciones" text="Cuando te anotes a una ruta o clase, aparecerá acá con sus datos principales." />;
+  }
+
+  return (
+    <View style={styles.list}>
+      {activities.map((activity) => {
+        const date = new Intl.DateTimeFormat('es-CL', { day: 'numeric', month: 'long', weekday: 'short' }).format(activity.date).replace('.', '');
+        return (
+          <View key={activity.id} style={styles.registrationCard}>
+            <View style={styles.cardTopRow}>
+              <Text style={styles.eyebrow}>{activityTypeLabels[activity.type].toUpperCase()}</Text>
+              <View style={styles.confirmedPill}><Text style={styles.confirmedText}>INSCRITO</Text></View>
+            </View>
+            <Text style={styles.cardTitle}>{activity.title}</Text>
+            <Text style={styles.cardMeta}>{date} · {activity.time}</Text>
+            <Text style={styles.cardMeta}>Punto de encuentro: {activity.meetingPoint}</Text>
+            <Text style={styles.participantCount}>{activity.participants} {activity.participants === 1 ? 'participante' : 'participantes'}</Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function RecordedList({
+  activities,
+  error,
+  isLoading,
+  onRename,
+  onShare,
+}: {
+  activities: UserActivity[];
+  error: string | null;
+  isLoading: boolean;
+  onRename: (activity: UserActivity) => void;
+  onShare: (activity: UserActivity) => void;
+}) {
+  if (isLoading) {
+    return <LoadingState text="Cargando tus registros GPS…" />;
+  }
+  if (!activities.length) {
+    return <EmptyState title={error ? 'Falta activar el historial' : 'Aún no tienes registros GPS'} text={error ? 'Ejecuta la migración de Supabase incluida en los entregables y vuelve a intentar.' : 'Inicia un registro desde Rutas > Mapa. Al terminar quedará guardado acá.'} />;
+  }
+
+  return (
+    <View style={styles.list}>
+      {activities.map((activity, index) => {
+        const date = new Intl.DateTimeFormat('es-CL', { dateStyle: 'medium', timeStyle: 'short' }).format(activity.startedAt);
+        const minutes = Math.max(1, Math.round(activity.durationSeconds / 60));
+        const isLatest = index === 0;
+        return (
+          <View key={activity.id} style={[styles.recordedCard, isLatest && styles.recordedCardLatest]}>
+            <View style={styles.cardTopRow}>
+              <Text style={styles.eyebrow}>{isLatest ? 'ÚLTIMO REGISTRO' : 'REGISTRO GPS'}</Text>
+              <Text style={styles.routeState}>{activity.route.length > 1 ? 'Mapa disponible' : 'Sin trazado'}</Text>
+            </View>
+            <Text style={styles.cardTitle}>{activity.title}</Text>
+            <Text style={styles.cardMeta}>{date}</Text>
+            <View style={styles.metrics}>
+              <Metric label="Distancia" value={`${activity.distanceKm.toFixed(2)} km`} />
+              <Metric label="Tiempo" value={`${minutes} min`} />
+              <Metric label="Vel. media" value={`${activity.averageSpeedKmh.toFixed(1)} km/h`} />
+            </View>
+            <View style={styles.actions}>
+              <Pressable accessibilityRole="button" onPress={() => onRename(activity)} style={styles.secondaryButton}>
+                <Text style={styles.secondaryButtonText}>Renombrar</Text>
+              </Pressable>
+              {isLatest ? (
+                <Pressable accessibilityRole="button" accessibilityState={{ disabled: activity.route.length < 2 }} disabled={activity.route.length < 2} onPress={() => onShare(activity)} style={[styles.shareButton, activity.route.length < 2 && styles.buttonDisabled]}>
+                  <Text style={styles.shareButtonText}>Compartir última</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return <View style={styles.metric}><Text style={styles.metricValue}>{value}</Text><Text style={styles.metricLabel}>{label}</Text></View>;
+}
+
+function LoadingState({ text }: { text: string }) {
+  return <View style={styles.stateCard}><ActivityIndicator color="#FF7900" /><Text style={styles.stateText}>{text}</Text></View>;
+}
+
+function EmptyState({ text, title }: { text: string; title: string }) {
+  return <View style={styles.stateCard}><Text style={styles.stateTitle}>{title}</Text><Text style={styles.stateText}>{text}</Text></View>;
+}
+
+function RenameModal({
+  activity,
+  error,
+  isSaving,
+  onCancel,
+  onChangeTitle,
+  onSave,
+  title,
+}: {
+  activity: UserActivity | null;
+  error: string | null;
+  isSaving: boolean;
+  onCancel: () => void;
+  onChangeTitle: (title: string) => void;
+  onSave: () => void;
+  title: string;
+}) {
+  return (
+    <Modal animationType="fade" onRequestClose={onCancel} transparent visible={Boolean(activity)}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalBackdrop}>
+        <View style={styles.renameDialog}>
+          <Text style={styles.modalTitle}>Renombrar actividad</Text>
+          <Text style={styles.modalText}>Ponle un nombre que te ayude a reconocer este recorrido.</Text>
+          <TextInput
+            accessibilityLabel="Nuevo nombre de la actividad"
+            autoFocus
+            maxLength={60}
+            onChangeText={onChangeTitle}
+            onSubmitEditing={onSave}
+            placeholder="Ej.: Vuelta por el Parque"
+            placeholderTextColor="#777777"
+            returnKeyType="done"
+            selectTextOnFocus
+            style={styles.renameInput}
+            value={title}
+          />
+          <Text style={styles.characterCount}>{title.trim().length}/60</Text>
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          <View style={styles.modalActions}>
+            <Pressable disabled={isSaving} onPress={onCancel} style={styles.modalCancel}><Text style={styles.modalCancelText}>Cancelar</Text></Pressable>
+            <Pressable disabled={isSaving} onPress={onSave} style={[styles.modalSave, isSaving && styles.buttonDisabled]}>
+              {isSaving ? <ActivityIndicator color="#111111" size="small" /> : <Text style={styles.modalSaveText}>Guardar nombre</Text>}
+            </Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function ShareModal({
+  activity,
+  cardRef,
+  isMapReady,
+  isSharing,
+  onClose,
+  onMapReady,
+  onShare,
+}: {
+  activity: UserActivity | null;
+  cardRef: React.RefObject<View | null>;
+  isMapReady: boolean;
+  isSharing: boolean;
+  onClose: () => void;
+  onMapReady: () => void;
+  onShare: () => void;
+}) {
+  return (
+    <Modal animationType="slide" onRequestClose={onClose} visible={Boolean(activity)}>
+      <View style={styles.shareScreen}>
+        <SafeAreaView style={styles.shareSafeArea}>
+          <View style={styles.shareHeader}>
+            <Pressable accessibilityLabel="Cerrar vista previa" accessibilityRole="button" onPress={onClose} style={styles.shareClose}><Text style={styles.shareCloseText}>×</Text></Pressable>
+            <Text style={styles.shareHeaderTitle}>Compartir actividad</Text>
+            <View style={styles.shareClose} />
+          </View>
+          <ScrollView contentContainerStyle={styles.shareContent} showsVerticalScrollIndicator={false}>
+            {activity ? <ActivityShareCard activity={activity} cardRef={cardRef} onMapReady={onMapReady} /> : null}
+            <Text style={styles.shareHelp}>{isMapReady ? 'La imagen está lista. Elige Instagram, WhatsApp u otra red en el siguiente menú.' : 'Preparando el mapa para que salga nítido…'}</Text>
+            <Pressable accessibilityRole="button" accessibilityState={{ disabled: !isMapReady || isSharing }} disabled={!isMapReady || isSharing} onPress={onShare} style={[styles.shareAction, (!isMapReady || isSharing) && styles.buttonDisabled]}>
+              {isSharing ? <ActivityIndicator color="#111111" /> : <Text style={styles.shareActionText}>Compartir imagen</Text>}
+            </Pressable>
+          </ScrollView>
+        </SafeAreaView>
+      </View>
+    </Modal>
+  );
+}
+
+function ActivityShareCard({
+  activity,
+  cardRef,
+  onMapReady,
+}: {
+  activity: UserActivity;
+  cardRef: React.RefObject<View | null>;
+  onMapReady: () => void;
+}) {
+  const bounds = routeBounds(activity.route);
+  const routeFeature = {
+    type: 'Feature' as const,
+    properties: {},
+    geometry: {
+      type: 'LineString' as const,
+      coordinates: activity.route.map((coordinate) => [coordinate.longitude, coordinate.latitude]),
+    },
+  };
+  const start = activity.route[0];
+  const finish = activity.route.at(-1);
+  const minutes = Math.max(1, Math.round(activity.durationSeconds / 60));
+  const date = new Intl.DateTimeFormat('es-CL', { day: 'numeric', month: 'long', year: 'numeric' }).format(activity.startedAt);
+
+  return (
+    <View collapsable={false} ref={cardRef} style={styles.shareCard}>
+      <Map
+        androidView="texture"
+        attribution={false}
+        compass={false}
+        logo={false}
+        mapStyle={mapStyleUrl}
+        onDidFinishRenderingMapFully={onMapReady}
+        style={StyleSheet.absoluteFill}>
+        <Camera bounds={bounds} padding={{ bottom: 330, left: 80, right: 80, top: 170 }} />
+        <GeoJSONSource data={routeFeature} id="share-route">
+          <Layer
+            id="share-route-halo"
+            layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+            paint={{ 'line-color': '#07111F', 'line-opacity': 0.6, 'line-width': 10 }}
+            type="line"
+          />
+          <Layer
+            id="share-route-line"
+            layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+            paint={{ 'line-color': '#FF7900', 'line-width': 6 }}
+            type="line"
+          />
+        </GeoJSONSource>
+        {start ? <ViewAnnotation id="share-start" lngLat={[start.longitude, start.latitude]}><MapPin label="INICIO" tone="start" /></ViewAnnotation> : null}
+        {finish ? <ViewAnnotation id="share-finish" lngLat={[finish.longitude, finish.latitude]}><MapPin label="FIN" tone="finish" /></ViewAnnotation> : null}
+      </Map>
+      <View pointerEvents="none" style={styles.shareGradientTop} />
+      <View pointerEvents="none" style={styles.shareBrand}>
+        <Image source={transparentLogo} resizeMode="contain" style={styles.shareLogo} />
+        <View><Text style={styles.shareBrandName}>RollersMaps</Text><Text style={styles.shareBrandTagline}>Patinamos juntos con Santiago Rollers</Text></View>
+      </View>
+      <View pointerEvents="none" style={styles.shareSummary}>
+        <Text style={styles.shareEyebrow}>MI ACTIVIDAD · {date.toUpperCase()}</Text>
+        <Text numberOfLines={2} style={styles.shareTitle}>{activity.title}</Text>
+        <View style={styles.shareMetrics}>
+          <ShareMetric label="DISTANCIA" value={`${activity.distanceKm.toFixed(2)} km`} />
+          <ShareMetric label="TIEMPO" value={`${minutes} min`} />
+          <ShareMetric label="VELOCIDAD" value={`${activity.averageSpeedKmh.toFixed(1)} km/h`} />
+        </View>
+        <Text style={styles.shareCopyright}>© 2026 Manuel Salinas</Text>
+        <Text style={styles.shareAttribution}>© OpenStreetMap contributors · OpenFreeMap</Text>
+      </View>
+    </View>
+  );
+}
+
+function ShareMetric({ label, value }: { label: string; value: string }) {
+  return <View style={styles.shareMetric}><Text style={styles.shareMetricLabel}>{label}</Text><Text style={styles.shareMetricValue}>{value}</Text></View>;
+}
+
+function MapPin({ label, tone }: { label: string; tone: 'start' | 'finish' }) {
+  return <View style={[styles.mapPin, tone === 'start' ? styles.mapPinStart : styles.mapPinFinish]}><Text style={styles.mapPinText}>{label}</Text></View>;
+}
+
+function routeBounds(route: UserActivity['route']): [number, number, number, number] {
+  const longitudes = route.map((point) => point.longitude);
+  const latitudes = route.map((point) => point.latitude);
+  const west = Math.min(...longitudes);
+  const east = Math.max(...longitudes);
+  const south = Math.min(...latitudes);
+  const north = Math.max(...latitudes);
+  const longitudePadding = Math.max((east - west) * 0.12, 0.003);
+  const latitudePadding = Math.max((north - south) * 0.12, 0.003);
+  return [west - longitudePadding, south - latitudePadding, east + longitudePadding, north + latitudePadding];
+}
+
+function SignInRequired() {
+  return (
+    <View style={[styles.screen, styles.required]}>
+      <StatusBar style="light" />
+      <Image source={transparentLogo} resizeMode="contain" style={styles.requiredLogo} />
+      <Text style={styles.requiredTitle}>Ingresa para ver tus actividades</Text>
+      <Pressable onPress={() => router.replace('/')} style={styles.shareAction}><Text style={styles.shareActionText}>Ir a Inicio</Text></Pressable>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { backgroundColor: '#070707', flex: 1 },
+  safeArea: { flex: 1 },
+  content: { gap: 18, padding: 20, paddingBottom: 72 },
+  header: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  backButton: { alignItems: 'center', backgroundColor: '#1D1D1D', borderColor: '#393939', borderRadius: 21, borderWidth: 1, height: 42, justifyContent: 'center', width: 42 },
+  backButtonText: { color: '#FFFFFF', fontSize: 31, fontWeight: '400', lineHeight: 34, marginTop: -3 },
+  headerBrand: { alignItems: 'center', flexDirection: 'row', gap: 7 },
+  headerLogo: { height: 38, width: 38 },
+  headerBrandText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
+  headerSpacer: { width: 42 },
+  title: { color: '#FFFFFF', fontSize: 30, fontWeight: '900' },
+  subtitle: { color: '#A8A8A8', fontSize: 12, lineHeight: 18, marginTop: 5 },
+  segmentedControl: { backgroundColor: '#151515', borderColor: '#303030', borderRadius: 14, borderWidth: 1, flexDirection: 'row', padding: 5 },
+  segment: { alignItems: 'center', borderRadius: 10, flex: 1, minHeight: 43, justifyContent: 'center', paddingHorizontal: 7 },
+  segmentActive: { backgroundColor: '#FF7900' },
+  segmentText: { color: '#AFAFAF', fontSize: 10, fontWeight: '900', textAlign: 'center' },
+  segmentTextActive: { color: '#111111' },
+  list: { gap: 11 },
+  registrationCard: { backgroundColor: '#151515', borderColor: '#303030', borderRadius: 16, borderWidth: 1, gap: 7, padding: 15 },
+  recordedCard: { backgroundColor: '#151515', borderColor: '#303030', borderRadius: 17, borderWidth: 1, gap: 8, padding: 15 },
+  recordedCardLatest: { backgroundColor: '#19130E', borderColor: '#8C4B16' },
+  cardTopRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  eyebrow: { color: '#FF9A45', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 },
+  confirmedPill: { backgroundColor: '#162510', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5 },
+  confirmedText: { color: '#8BE75A', fontSize: 8, fontWeight: '900' },
+  routeState: { color: '#A9A9A9', fontSize: 9, fontWeight: '700' },
+  cardTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '900', lineHeight: 22 },
+  cardMeta: { color: '#BDBDBD', fontSize: 11, lineHeight: 16 },
+  participantCount: { color: '#FFB35F', fontSize: 11, fontWeight: '900', marginTop: 2 },
+  metrics: { backgroundColor: '#0E0E0E', borderRadius: 12, flexDirection: 'row', marginTop: 3, paddingVertical: 12 },
+  metric: { alignItems: 'center', flex: 1 },
+  metricValue: { color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
+  metricLabel: { color: '#8E8E8E', fontSize: 8, fontWeight: '800', marginTop: 3 },
+  actions: { flexDirection: 'row', gap: 9, marginTop: 3 },
+  secondaryButton: { alignItems: 'center', borderColor: '#565656', borderRadius: 11, borderWidth: 1, flex: 1, justifyContent: 'center', minHeight: 43 },
+  secondaryButtonText: { color: '#E7E7E7', fontSize: 11, fontWeight: '900' },
+  shareButton: { alignItems: 'center', backgroundColor: '#FF7900', borderRadius: 11, flex: 1.25, justifyContent: 'center', minHeight: 43 },
+  shareButtonText: { color: '#111111', fontSize: 11, fontWeight: '900' },
+  buttonDisabled: { opacity: 0.5 },
+  stateCard: { alignItems: 'center', backgroundColor: '#151515', borderColor: '#303030', borderRadius: 17, borderStyle: 'dashed', borderWidth: 1, gap: 8, padding: 28 },
+  stateTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '900', textAlign: 'center' },
+  stateText: { color: '#A8A8A8', fontSize: 11, lineHeight: 17, textAlign: 'center' },
+  futureCard: { backgroundColor: '#121A23', borderColor: '#30445B', borderRadius: 15, borderWidth: 1, padding: 14 },
+  futureTitle: { color: '#A9D0FF', fontSize: 12, fontWeight: '900' },
+  futureText: { color: '#BFCADA', fontSize: 10, lineHeight: 15, marginTop: 5 },
+  copyright: { color: '#666666', fontSize: 9, textAlign: 'center' },
+  modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.76)', flex: 1, justifyContent: 'center', padding: 22 },
+  renameDialog: { backgroundColor: '#171717', borderColor: '#3A3A3A', borderRadius: 20, borderWidth: 1, padding: 18, width: '100%' },
+  modalTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '900' },
+  modalText: { color: '#AFAFAF', fontSize: 11, lineHeight: 16, marginTop: 6 },
+  renameInput: { backgroundColor: '#0B0B0B', borderColor: '#595959', borderRadius: 12, borderWidth: 1, color: '#FFFFFF', fontSize: 14, marginTop: 15, minHeight: 49, paddingHorizontal: 13 },
+  characterCount: { color: '#777777', fontSize: 9, marginTop: 5, textAlign: 'right' },
+  errorText: { color: '#FF9B86', fontSize: 10, fontWeight: '700', marginTop: 6 },
+  modalActions: { flexDirection: 'row', gap: 9, marginTop: 16 },
+  modalCancel: { alignItems: 'center', borderColor: '#4A4A4A', borderRadius: 11, borderWidth: 1, flex: 1, justifyContent: 'center', minHeight: 45 },
+  modalCancelText: { color: '#E0E0E0', fontSize: 11, fontWeight: '900' },
+  modalSave: { alignItems: 'center', backgroundColor: '#FF7900', borderRadius: 11, flex: 1.35, justifyContent: 'center', minHeight: 45 },
+  modalSaveText: { color: '#111111', fontSize: 11, fontWeight: '900' },
+  shareScreen: { backgroundColor: '#090909', flex: 1 },
+  shareSafeArea: { flex: 1 },
+  shareHeader: { alignItems: 'center', borderBottomColor: '#292929', borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between', padding: 16 },
+  shareClose: { alignItems: 'center', height: 42, justifyContent: 'center', width: 42 },
+  shareCloseText: { color: '#FFFFFF', fontSize: 32, fontWeight: '300' },
+  shareHeaderTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
+  shareContent: { alignItems: 'center', gap: 14, padding: 18, paddingBottom: 50 },
+  shareCard: { aspectRatio: 9 / 16, backgroundColor: '#07111F', maxWidth: 380, overflow: 'hidden', position: 'relative', width: '100%' },
+  shareGradientTop: { backgroundColor: 'rgba(3,9,17,0.5)', height: '28%', left: 0, position: 'absolute', right: 0, top: 0 },
+  shareBrand: { alignItems: 'center', flexDirection: 'row', gap: 9, left: 18, position: 'absolute', right: 18, top: 20 },
+  shareLogo: { height: 48, width: 48 },
+  shareBrandName: { color: '#FFFFFF', fontSize: 18, fontWeight: '900' },
+  shareBrandTagline: { color: '#E4E7EA', fontSize: 8, fontWeight: '700', marginTop: 2 },
+  shareSummary: { backgroundColor: 'rgba(4,10,18,0.9)', bottom: 0, left: 0, padding: 21, position: 'absolute', right: 0 },
+  shareEyebrow: { color: '#FF9A45', fontSize: 8, fontWeight: '900', letterSpacing: 0.7 },
+  shareTitle: { color: '#FFFFFF', fontSize: 24, fontWeight: '900', lineHeight: 28, marginTop: 7 },
+  shareMetrics: { flexDirection: 'row', marginTop: 17 },
+  shareMetric: { flex: 1 },
+  shareMetricLabel: { color: '#AEB6C0', fontSize: 7, fontWeight: '900' },
+  shareMetricValue: { color: '#FFFFFF', fontSize: 14, fontWeight: '900', marginTop: 4 },
+  shareCopyright: { color: '#89929E', fontSize: 7, marginTop: 17 },
+  shareAttribution: { color: '#89929E', fontSize: 6, marginTop: 3 },
+  mapPin: { alignItems: 'center', borderColor: '#FFFFFF', borderRadius: 13, borderWidth: 2, paddingHorizontal: 8, paddingVertical: 5 },
+  mapPinStart: { backgroundColor: '#2F9B55' },
+  mapPinFinish: { backgroundColor: '#FF5B35' },
+  mapPinText: { color: '#FFFFFF', fontSize: 8, fontWeight: '900' },
+  shareHelp: { color: '#AFAFAF', fontSize: 11, lineHeight: 16, maxWidth: 380, textAlign: 'center' },
+  shareAction: { alignItems: 'center', backgroundColor: '#FF7900', borderRadius: 13, justifyContent: 'center', maxWidth: 380, minHeight: 49, paddingHorizontal: 28, width: '100%' },
+  shareActionText: { color: '#111111', fontSize: 13, fontWeight: '900' },
+  required: { alignItems: 'center', justifyContent: 'center', padding: 28 },
+  requiredLogo: { height: 110, width: 110 },
+  requiredTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '900', marginBottom: 20, marginTop: 15, textAlign: 'center' },
+});
