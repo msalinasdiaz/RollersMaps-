@@ -1,29 +1,39 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState, type ComponentProps } from 'react';
+import { useEffect, useState, type ComponentProps } from 'react';
 import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { GpsTargetIcon } from '@/components/gps-target-icon';
 import { useDemoSession } from '@/contexts/demo-session';
-import { formatShortMonth, formatShortWeekDay, getUpcomingActivity, type AppActivity } from '@/data/activities';
+import { formatShortMonth, formatShortWeekDay, getActivityTiming, getUpcomingActivity, type AppActivity } from '@/data/activities';
 import { useActivities } from '@/hooks/use-activities';
 import { useUserActivities, type UserActivity } from '@/hooks/use-user-activities';
 
 const officialLogo = require('@/assets/images/rollersmaps-app-icon.png');
-const transparentLogo = require('@/assets/images/rollersmaps-splash-icon.png');
+const transparentLogo = require('@/assets/images/rollersmaps-adaptive-foreground.png');
 
 export default function HomeScreen() {
   const router = useRouter();
   const { isLoading: isSessionLoading, isSignedIn, isJoined, profile, signOut, toggleActivity } = useDemoSession();
   const { activities, error: activitiesError, isLoading: areActivitiesLoading, refresh } = useActivities(isSignedIn);
   const { activities: savedActivities, error: savedActivitiesError, isLoading: areSavedActivitiesLoading } = useUserActivities(isSignedIn);
-  const nextActivity = getUpcomingActivity(activities);
+  const [referenceTime, setReferenceTime] = useState(() => new Date());
+  const nextActivity = getUpcomingActivity(activities, referenceTime);
   const joined = nextActivity ? isJoined(nextActivity.id) : false;
+  const nextActivityTiming = nextActivity ? getActivityTiming(nextActivity, referenceTime) : null;
   const nextActivityRemaining = nextActivity ? Math.max(0, nextActivity.capacity - nextActivity.participants) : 0;
   const isNextActivityFull = Boolean(nextActivity && !joined && nextActivityRemaining === 0);
   const joinedActivities = activities.filter((activity) => isJoined(activity.id));
   const joinedActivityCount = joinedActivities.length;
   const firstName = profile?.displayName?.trim().split(/\s+/)[0];
+  const totalDistanceKm = savedActivities.reduce((total, activity) => total + activity.distanceKm, 0);
+  const totalDurationSeconds = savedActivities.reduce((total, activity) => total + activity.durationSeconds, 0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setReferenceTime(new Date()), 30_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleSignOut = () => {
     void signOut();
@@ -80,7 +90,18 @@ export default function HomeScreen() {
                 <Text style={styles.activityPlace}>{nextActivity.time} · {nextActivity.meetingPoint}</Text>
                 {nextActivity.level ? <Text style={styles.activityMeta}>{nextActivity.level}{nextActivity.difficulty ? ` · ${nextActivity.difficulty}` : ''}</Text> : null}
                 <View style={styles.activityActionRow}>
-                  <Text style={styles.participants}>{nextActivity.participants} {nextActivity.participants === 1 ? 'participante' : 'participantes'}</Text>
+                  <View style={styles.eventStartAction}>
+                    <Pressable
+                      accessibilityLabel={!joined ? 'Inscríbete para registrar esta actividad' : nextActivityTiming?.hasEnded ? `${nextActivity.title}, actividad finalizada` : nextActivityTiming?.canStart ? `Registrar ${nextActivity.title}` : `${nextActivity.title} se habilita a partir de las ${nextActivity.time}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ disabled: !joined || !nextActivityTiming?.canStart }}
+                      disabled={!joined || !nextActivityTiming?.canStart}
+                      onPress={() => router.navigate({ pathname: '/track', params: { activityId: nextActivity.id } })}
+                      style={[styles.eventStartCircle, nextActivityTiming?.canStart && joined && styles.eventStartCircleReady]}>
+                      <GpsTargetIcon color={nextActivityTiming?.canStart && joined ? '#111111' : '#FF7900'} size={18} />
+                    </Pressable>
+                    <Text numberOfLines={3} style={[styles.eventStartLabel, nextActivityTiming?.canStart && joined && styles.eventStartLabelReady]}>{!joined ? 'Inscríbete primero' : nextActivityTiming?.hasEnded ? 'Actividad finalizada' : nextActivityTiming?.canStart ? 'Registrar actividad' : `Se habilita a partir de las ${nextActivity.time}`}</Text>
+                  </View>
                   <Pressable
                     accessibilityLabel={joined ? `Cancelar inscripción en ${nextActivity.title}` : isNextActivityFull ? `${nextActivity.title}, sin cupos disponibles` : `Inscribirme en ${nextActivity.title}`}
                     accessibilityRole="button"
@@ -103,14 +124,13 @@ export default function HomeScreen() {
             </View>
           )}
 
-          <Pressable accessibilityLabel="Abrir mapa y registro GPS" accessibilityRole="button" onPress={() => router.navigate('/explore')} style={styles.liveCard}>
-            <View style={styles.liveIcon}><Text style={styles.liveIconText}>{'⌖'}</Text></View>
-            <View style={styles.liveInfo}>
-              <Text style={styles.liveTitle}>Mapa y registro GPS</Text>
-              <Text style={styles.liveSub}>Revisa tu ubicación y registra una actividad en este dispositivo.</Text>
-            </View>
-            <Text style={styles.arrow}>{'›'}</Text>
-          </Pressable>
+          <View style={styles.routeLauncher}>
+            <Pressable accessibilityLabel="Registrar una actividad con GPS" accessibilityRole="button" onPress={() => router.navigate('/track')} style={styles.routeLaunchButton}>
+              <GpsTargetIcon color="#FF7900" size={62} />
+            </Pressable>
+            <Text style={styles.routeLaunchTitle}>Registrar actividad</Text>
+            <Text style={styles.routeLaunchSub}>Abre el mapa y el GPS a pantalla completa.</Text>
+          </View>
 
           <View style={styles.heading}>
             <Text style={styles.headingTitle}>Mis actividades</Text>
@@ -133,7 +153,7 @@ export default function HomeScreen() {
             ) : savedActivities.length ? savedActivities.slice(0, 1).map((activity) => (
               <SavedActivityRow activity={activity} key={activity.id} />
             )) : (
-              <Text style={styles.myActivitiesEmpty}>{savedActivitiesError ? 'Falta activar el historial privado en Supabase.' : 'Aún no guardas recorridos. Inicia uno desde Mapa y GPS.'}</Text>
+              <Text style={styles.myActivitiesEmpty}>{savedActivitiesError ? 'Falta activar el historial privado en Supabase.' : 'Aún no guardas recorridos. Toca Registrar actividad para guardar el primero.'}</Text>
             )}
           </View>
 
@@ -142,9 +162,9 @@ export default function HomeScreen() {
             <Text style={styles.headingLink}>Mi cuenta</Text>
           </View>
           <View style={styles.stats}>
-            <Stat value={joinedActivityCount.toString()} label={'Mis\ninscripciones'} />
-            <Stat value={activities.length.toString()} label={'Actividades\npublicadas'} />
-            <Stat value={nextActivity ? formatShortWeekDay(nextActivity.date) : '—'} label={'Próxima\nsalida'} />
+            <Stat value={areSavedActivitiesLoading ? '—' : formatSummaryDistance(totalDistanceKm)} label={'Kilómetros\nrecorridos'} />
+            <Stat value={areSavedActivitiesLoading ? '—' : formatSummaryHours(totalDurationSeconds)} label={'Horas de\nactividad'} />
+            <Stat value={areSavedActivitiesLoading ? '—' : savedActivities.length.toString()} label={'Registros\nGPS'} />
           </View>
 
           <View style={styles.footer}><View style={styles.footerLine} /><Text style={styles.footerText}>PATINAMOS JUNTOS</Text><View style={styles.footerLine} /></View>
@@ -307,6 +327,17 @@ function SavedActivityRow({ activity }: { activity: UserActivity }) {
   );
 }
 
+function formatSummaryDistance(distanceKm: number) {
+  const decimals = distanceKm >= 100 ? 0 : distanceKm >= 10 ? 1 : 2;
+  return `${distanceKm.toFixed(decimals).replace('.', ',')} km`;
+}
+
+function formatSummaryHours(durationSeconds: number) {
+  const totalHours = durationSeconds / 3600;
+  const decimals = totalHours > 0 && totalHours < 1 ? 2 : 1;
+  return `${totalHours.toFixed(decimals).replace('.', ',')} h`;
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#070707' },
   safeArea: { flex: 1 },
@@ -335,7 +366,7 @@ const styles = StyleSheet.create({
   topBar: { alignItems: 'center', flexDirection: 'row', height: 54, justifyContent: 'center', position: 'relative' },
   brandIdentity: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   brandIconFrame: { alignItems: 'center', borderRadius: 20, height: 40, justifyContent: 'center', overflow: 'hidden', width: 40 },
-  brandIcon: { height: 46, width: 46 },
+  brandIcon: { height: 64, width: 64 },
   brandName: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
   profile: { alignItems: 'center', backgroundColor: '#26201B', borderColor: '#7A4A23', borderRadius: 18, borderWidth: 1, minHeight: 40, justifyContent: 'center', paddingHorizontal: 13, position: 'absolute', right: 0 },
   profileText: { color: '#FFB35F', fontSize: 11, fontWeight: '900' },
@@ -358,7 +389,11 @@ const styles = StyleSheet.create({
   activityPlace: { color: '#D8D8D8', fontSize: 11, fontWeight: '700', lineHeight: 16, marginTop: 4, paddingRight: 36 },
   activityMeta: { color: '#B9B9B9', fontSize: 10, fontWeight: '700', marginTop: 6 },
   activityActionRow: { alignItems: 'center', flexDirection: 'row', gap: 10, justifyContent: 'space-between', marginTop: 14 },
-  participants: { color: '#CCCCCC', flex: 1, fontSize: 10, fontWeight: '700' },
+  eventStartAction: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 8 },
+  eventStartCircle: { alignItems: 'center', backgroundColor: '#24292E', borderColor: '#555E66', borderRadius: 20, borderWidth: 1, height: 40, justifyContent: 'center', width: 40 },
+  eventStartCircleReady: { backgroundColor: '#FF7900', borderColor: '#FF9A45' },
+  eventStartLabel: { color: '#B0B5BA', flex: 1, fontSize: 8.5, fontWeight: '800', lineHeight: 11 },
+  eventStartLabelReady: { color: '#FFB35F' },
   mainButton: { alignItems: 'center', backgroundColor: '#FF7900', borderRadius: 11, minWidth: 112, paddingHorizontal: 14, paddingVertical: 11 },
   mainButtonJoined: { backgroundColor: '#7FD34E' },
   mainButtonDisabled: { backgroundColor: '#3B3B3B' },
@@ -372,13 +407,10 @@ const styles = StyleSheet.create({
   noActivityText: { color: '#A8A8A8', fontSize: 12, lineHeight: 17, marginTop: 5 },
   noActivityButton: { alignItems: 'center', borderColor: '#FF7900', borderRadius: 11, borderWidth: 1, marginTop: 14, paddingVertical: 11 },
   noActivityButtonText: { color: '#FF9A45', fontSize: 12, fontWeight: '900' },
-  liveCard: { alignItems: 'center', backgroundColor: '#121212', borderColor: '#2C2C2C', borderRadius: 16, borderWidth: 1, flexDirection: 'row', padding: 14 },
-  liveIcon: { alignItems: 'center', backgroundColor: '#32200E', borderRadius: 12, height: 42, justifyContent: 'center', width: 42 },
-  liveIconText: { color: '#FF7900', fontSize: 22 },
-  liveInfo: { flex: 1, marginLeft: 12 },
-  liveTitle: { color: '#EEEEEE', fontSize: 13, fontWeight: '800' },
-  liveSub: { color: '#989898', fontSize: 10, lineHeight: 14, marginTop: 3 },
-  arrow: { color: '#FF7900', fontSize: 28, fontWeight: '300' },
+  routeLauncher: { alignItems: 'center', paddingVertical: 5 },
+  routeLaunchButton: { alignItems: 'center', height: 78, justifyContent: 'center', width: 78 },
+  routeLaunchTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '900', marginTop: 10 },
+  routeLaunchSub: { color: '#909090', fontSize: 10, marginTop: 3 },
   myActivitiesCard: { backgroundColor: '#121212', borderColor: '#2C2C2C', borderRadius: 16, borderWidth: 1, padding: 15 },
   myActivitiesSectionTitle: { color: '#FF9A45', fontSize: 11, fontWeight: '900', letterSpacing: 0.35, marginBottom: 4, textTransform: 'uppercase' },
   myActivitiesEmpty: { color: '#989898', flex: 1, fontSize: 11, lineHeight: 16, paddingVertical: 7 },

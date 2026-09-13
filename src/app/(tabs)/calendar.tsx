@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { GpsTargetIcon } from '@/components/gps-target-icon';
 import { useDemoSession } from '@/contexts/demo-session';
 import {
   activitiesForDate,
@@ -11,12 +12,14 @@ import {
   activityTypeLabels,
   formatShortMonth,
   formatShortWeekDay,
+  getActivityTiming,
   getUpcomingActivity,
   type AppActivity,
 } from '@/data/activities';
 import { useActivities } from '@/hooks/use-activities';
 
 const officialLogo = require('@/assets/images/rollersmaps-app-icon.png');
+const transparentLogo = require('@/assets/images/rollersmaps-adaptive-foreground.png');
 
 type CalendarDay = {
   date: Date;
@@ -36,7 +39,7 @@ function formatWeekRange(start: Date, end: Date) {
 export default function CalendarScreen() {
   const { isSignedIn, signOut, isJoined, toggleActivity } = useDemoSession();
   const { activities, isLoading } = useActivities(isSignedIn);
-  const [referenceDate] = useState(() => new Date());
+  const [referenceDate, setReferenceDate] = useState(() => new Date());
   const weekDays = useMemo<CalendarDay[]>(() => {
     const firstDay = new Date(referenceDate);
     firstDay.setHours(0, 0, 0, 0);
@@ -56,6 +59,11 @@ export default function CalendarScreen() {
     signOut();
     router.replace('/');
   };
+
+  useEffect(() => {
+    const interval = setInterval(() => setReferenceDate(new Date()), 30_000);
+    return () => clearInterval(interval);
+  }, []);
 
   if (!isSignedIn) {
     return <SignInRequired />;
@@ -140,7 +148,7 @@ function Header({ onSignOut }: { onSignOut: () => void }) {
     <View style={styles.topBar}>
       <View style={styles.brandIdentity}>
         <View style={styles.brandIconFrame}>
-          <Image source={officialLogo} resizeMode="contain" style={styles.brandIcon} />
+          <Image source={transparentLogo} resizeMode="contain" style={styles.brandIcon} />
         </View>
         <Text style={styles.brandName}>RollersMaps</Text>
       </View>
@@ -189,7 +197,6 @@ function DayAgenda({
         {activities.length ? activities.map((activity) => (
           <ActivityCard
             activity={activity}
-            date={date}
             isJoined={isJoined(activity.id)}
             key={activity.id}
             onToggle={() => onToggleActivity(activity.id)}
@@ -206,14 +213,13 @@ function DayAgenda({
   );
 }
 
-function ActivityCard({ activity, date, isJoined, onToggle, referenceDate }: { activity: AppActivity; date: Date; isJoined: boolean; onToggle: () => void | Promise<void>; referenceDate: Date }) {
+function ActivityCard({ activity, isJoined, onToggle, referenceDate }: { activity: AppActivity; isJoined: boolean; onToggle: () => void | Promise<void>; referenceDate: Date }) {
   const color = activityTypeColors[activity.type];
   const remaining = Math.max(0, activity.capacity - activity.participants);
-  const scheduledFor = new Date(date);
-  const [hours, minutes] = activity.time.split(':').map(Number);
-  scheduledFor.setHours(hours, minutes, 0, 0);
-  const hasEnded = scheduledFor.getTime() < referenceDate.getTime();
+  const timing = getActivityTiming(activity, referenceDate);
+  const hasEnded = timing.hasEnded;
   const isUnavailable = !isJoined && remaining === 0;
+  const canStart = isJoined && timing.canStart;
 
   return (
     <View style={[styles.activityCard, isJoined && !hasEnded && styles.activityCardJoined, hasEnded && styles.activityCardPast]}>
@@ -235,7 +241,18 @@ function ActivityCard({ activity, date, isJoined, onToggle, referenceDate }: { a
       ) : null}
       {activity.note ? <Text style={styles.note}>{activity.note}</Text> : null}
       <View style={styles.activityFooter}>
-        <Text style={styles.capacity}>{hasEnded ? 'Actividad finalizada' : isJoined ? `${activity.participants} ${activity.participants === 1 ? 'participante' : 'participantes'}` : remaining ? `${remaining} cupos disponibles` : 'Sin cupos disponibles'}</Text>
+        <View style={styles.startAction}>
+          <Pressable
+            accessibilityLabel={hasEnded ? `${activity.title}, actividad finalizada` : !isJoined ? 'Inscríbete para registrar esta actividad' : canStart ? `Registrar ${activity.title}` : `${activity.title} se habilita a partir de las ${activity.time}`}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canStart }}
+            disabled={!canStart}
+            onPress={() => router.navigate({ pathname: '/track', params: { activityId: activity.id } })}
+            style={[styles.startCircle, canStart && styles.startCircleReady]}>
+            <GpsTargetIcon color={canStart ? '#111111' : '#FF7900'} size={16} />
+          </Pressable>
+          <Text numberOfLines={3} style={[styles.startLabel, canStart && styles.startLabelReady]}>{hasEnded ? 'Finalizada' : !isJoined ? 'Inscríbete primero' : canStart ? 'Registrar actividad' : `Se habilita a partir de las ${activity.time}`}</Text>
+        </View>
         <Pressable
           accessibilityLabel={hasEnded ? `${activity.title}, actividad finalizada` : isJoined ? `Cancelar inscripción en ${activity.title}` : `Inscribirme en ${activity.title}`}
           accessibilityRole="button"
@@ -297,8 +314,8 @@ const styles = StyleSheet.create({
   content: { gap: 16, padding: 20, paddingBottom: 64 },
   topBar: { alignItems: 'center', flexDirection: 'row', height: 54, justifyContent: 'space-between' },
   brandIdentity: { alignItems: 'center', flexDirection: 'row', gap: 8 },
-  brandIconFrame: { alignItems: 'center', backgroundColor: '#F8FAFC', borderRadius: 19, height: 38, justifyContent: 'center', overflow: 'hidden', width: 38 },
-  brandIcon: { height: 38, width: 38 },
+  brandIconFrame: { alignItems: 'center', height: 40, justifyContent: 'center', width: 40 },
+  brandIcon: { height: 62, width: 62 },
   brandName: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
   profile: { alignItems: 'center', backgroundColor: '#26201B', borderColor: '#7A4A23', borderRadius: 18, borderWidth: 1, minHeight: 40, justifyContent: 'center', paddingHorizontal: 13 },
   profileText: { color: '#FFB35F', fontSize: 11, fontWeight: '900' },
@@ -344,7 +361,11 @@ const styles = StyleSheet.create({
   metaPill: { backgroundColor: '#262626', borderRadius: 8, color: '#DDDDDD', fontSize: 9, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 5 },
   note: { color: '#FFB35F', fontSize: 10, fontWeight: '700', lineHeight: 14 },
   activityFooter: { alignItems: 'center', flexDirection: 'row', gap: 9, justifyContent: 'space-between', marginTop: 4 },
-  capacity: { color: '#A6A6A6', flex: 1, fontSize: 9, fontWeight: '700' },
+  startAction: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 7 },
+  startCircle: { alignItems: 'center', backgroundColor: '#242424', borderColor: '#4A4A4A', borderRadius: 18, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 },
+  startCircleReady: { backgroundColor: '#FF7900', borderColor: '#FFAA59' },
+  startLabel: { color: '#A6A6A6', flex: 1, fontSize: 8, fontWeight: '800', lineHeight: 11 },
+  startLabelReady: { color: '#FFB35F' },
   joinButton: { alignItems: 'center', backgroundColor: '#FF7900', borderRadius: 10, minWidth: 88, paddingHorizontal: 10, paddingVertical: 9 },
   joinButtonJoined: { backgroundColor: '#7FD34E' },
   joinButtonDisabled: { backgroundColor: '#404040' },

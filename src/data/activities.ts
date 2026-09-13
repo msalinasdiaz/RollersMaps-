@@ -5,6 +5,7 @@ export type AppActivity = {
   type: ActivityType;
   title: string;
   date: Date;
+  endsAt?: Date;
   time: string;
   meetingPoint: string;
   endingPoint?: string;
@@ -60,6 +61,7 @@ export function toAppActivity(row: PublishedActivityRow): AppActivity {
   return {
     capacity: row.capacity,
     date,
+    endsAt: row.ends_at ? new Date(row.ends_at) : undefined,
     difficulty: row.difficulty ? `Dificultad ${row.difficulty}` : undefined,
     endingPoint: row.ending_point ?? undefined,
     id: row.id,
@@ -91,7 +93,19 @@ export function activitiesForDate(activities: readonly AppActivity[], date: Date
 }
 
 export function getUpcomingActivity(activities: readonly AppActivity[], referenceDate = new Date()): AppActivity | null {
-  return activities.find((activity) => activity.date.getTime() >= referenceDate.getTime()) ?? null;
+  return activities.find((activity) => !getActivityTiming(activity, referenceDate).hasEnded) ?? null;
+}
+
+export function getActivityTiming(activity: AppActivity, referenceDate = new Date()) {
+  const startsAt = activity.date.getTime();
+  const endsAt = activity.endsAt?.getTime() ?? startsAt + 3 * 60 * 60 * 1000;
+  const now = referenceDate.getTime();
+
+  return {
+    canStart: now >= startsAt && now <= endsAt,
+    hasEnded: now > endsAt,
+    hasStarted: now >= startsAt,
+  };
 }
 
 export function formatShortMonth(date: Date) {

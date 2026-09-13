@@ -25,7 +25,7 @@ import { useDemoSession } from '@/contexts/demo-session';
 import { useActivities } from '@/hooks/use-activities';
 import { useUserActivities, type UserActivity } from '@/hooks/use-user-activities';
 
-const transparentLogo = require('@/assets/images/rollersmaps-splash-icon.png');
+const transparentLogo = require('@/assets/images/rollersmaps-adaptive-foreground.png');
 const mapStyleUrl = 'https://tiles.openfreemap.org/styles/liberty';
 
 export default function MyActivitiesScreen() {
@@ -212,7 +212,7 @@ function RegistrationList({ activities, isLoading }: { activities: AppActivity[]
             <Text style={styles.cardTitle}>{activity.title}</Text>
             <Text style={styles.cardMeta}>{date} · {activity.time}</Text>
             <Text style={styles.cardMeta}>Punto de encuentro: {activity.meetingPoint}</Text>
-            <Text style={styles.participantCount}>{activity.participants} {activity.participants === 1 ? 'participante' : 'participantes'}</Text>
+            <Text style={styles.registrationDetail}>{activity.level ? `${activity.level}${activity.difficulty ? ` · ${activity.difficulty}` : ''}` : 'Casco obligatorio'}</Text>
           </View>
         );
       })}
@@ -487,7 +487,7 @@ const styles = StyleSheet.create({
   backButton: { alignItems: 'center', backgroundColor: '#1D1D1D', borderColor: '#393939', borderRadius: 21, borderWidth: 1, height: 42, justifyContent: 'center', width: 42 },
   backButtonText: { color: '#FFFFFF', fontSize: 31, fontWeight: '400', lineHeight: 34, marginTop: -3 },
   headerBrand: { alignItems: 'center', flexDirection: 'row', gap: 7 },
-  headerLogo: { height: 38, width: 38 },
+  headerLogo: { height: 60, width: 60 },
   headerBrandText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
   headerSpacer: { width: 42 },
   title: { color: '#FFFFFF', fontSize: 30, fontWeight: '900' },
@@ -508,7 +508,7 @@ const styles = StyleSheet.create({
   routeState: { color: '#A9A9A9', fontSize: 9, fontWeight: '700' },
   cardTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '900', lineHeight: 22 },
   cardMeta: { color: '#BDBDBD', fontSize: 11, lineHeight: 16 },
-  participantCount: { color: '#FFB35F', fontSize: 11, fontWeight: '900', marginTop: 2 },
+  registrationDetail: { color: '#FFB35F', fontSize: 11, fontWeight: '900', marginTop: 2 },
   metrics: { backgroundColor: '#0E0E0E', borderRadius: 12, flexDirection: 'row', marginTop: 3, paddingVertical: 12 },
   metric: { alignItems: 'center', flex: 1 },
   metricValue: { color: '#FFFFFF', fontSize: 13, fontWeight: '900' },

@@ -12,7 +12,7 @@ import { useActivities } from '@/hooks/use-activities';
 import { useRoutes, type PublishedRoute } from '@/hooks/use-routes';
 import { supabase } from '@/lib/supabase';
 
-const brandLogo = require('@/assets/images/rollersmaps-app-icon.png');
+const brandLogo = require('@/assets/images/rollersmaps-adaptive-foreground.png');
 
 const classLevels = [
   {
@@ -364,13 +364,6 @@ function RoutesContent() {
             </Pressable>
             <Pressable accessibilityRole="tab" accessibilityState={{ selected: view === 'niveles' }} onPress={() => setView('niveles')} style={[styles.switchButton, view === 'niveles' && styles.switchActive]}>
               <Text style={[styles.switchText, view === 'niveles' && styles.switchTextActive]}>Niveles</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="tab"
-              accessibilityState={{ selected: view === 'mapa' }}
-              onPress={() => setView('mapa')}
-              style={[styles.switchButton, view === 'mapa' && styles.switchActive]}>
-              <Text style={[styles.switchText, view === 'mapa' && styles.switchTextActive]}>Mapa</Text>
             </Pressable>
           </View>
 
@@ -872,6 +865,6 @@ const styles = StyleSheet.create({
   requiredButton: { alignItems: 'center', backgroundColor: '#FF7900', borderRadius: 12, marginTop: 22, paddingHorizontal: 24, paddingVertical: 14 },
   requiredButtonText: { color: '#121212', fontSize: 13, fontWeight: '900' },
   brandIdentity: { alignItems: 'center', flexDirection: 'row', gap: 8 },
-  brandIconFrame: { alignItems: 'center', backgroundColor: '#F8FAFC', borderRadius: 20, height: 40, justifyContent: 'center', overflow: 'hidden', width: 40 },
-  brandIcon: { height: 40, width: 40 },
+  brandIconFrame: { alignItems: 'center', height: 40, justifyContent: 'center', width: 40 },
+  brandIcon: { height: 62, width: 62 },
   brandName: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },});
