@@ -683,7 +683,7 @@ function RouteGroup({ group, selectedLevel }: { group: RouteGroupData; selectedL
         {group.routes.map((route) => (
           <View key={route.id} style={styles.routeNamePill}>
             <Text style={styles.routeNamePillText}>{route.name}</Text>
-            {route.distanceKm || route.estimatedMinutes ? <Text style={styles.routeNamePillMeta}>{[route.distanceKm ? `${route.distanceKm} km` : null, route.estimatedMinutes ? `${route.estimatedMinutes} min` : null].filter(Boolean).join(' · ')}</Text> : null}
+            {route.distanceKm ? <Text style={styles.routeNamePillMeta}>{route.distanceKm} km</Text> : null}
           </View>
         ))}
       </View>

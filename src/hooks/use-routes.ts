@@ -6,7 +6,6 @@ export type PublishedRoute = {
   description: string | null;
   difficulty: 'baja' | 'media' | 'alta' | null;
   distanceKm: number | null;
-  estimatedMinutes: number | null;
   id: string;
   name: string;
   skillLevel: string | null;
@@ -15,7 +14,6 @@ export type PublishedRoute = {
 type RouteRow = {
   description: string | null;
   distance_km: number | null;
-  estimated_minutes: number | null;
   id: string;
   name: string;
   skill_level: string | null;
@@ -29,7 +27,7 @@ export function useRoutes() {
   const loadRoutes = useCallback(async () => {
     const { data, error: requestError } = await supabase
       .from('routes')
-      .select('id, name, description, skill_level, distance_km, estimated_minutes')
+      .select('id, name, description, skill_level, distance_km')
       .eq('status', 'published')
       .order('name');
 
@@ -44,7 +42,6 @@ export function useRoutes() {
       description: route.description,
       difficulty: null,
       distanceKm: route.distance_km,
-      estimatedMinutes: route.estimated_minutes,
       id: route.id,
       name: route.name,
       skillLevel: route.skill_level,

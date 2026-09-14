@@ -26,6 +26,7 @@ import { useActivities } from '@/hooks/use-activities';
 import { useUserActivities, type UserActivity } from '@/hooks/use-user-activities';
 
 const transparentLogo = require('@/assets/images/rollersmaps-adaptive-foreground.png');
+const shareLogoAsset = require('@/assets/images/rollersmaps-app-icon.png');
 const mapStyleUrl = 'https://tiles.openfreemap.org/styles/liberty';
 
 export default function MyActivitiesScreen() {
@@ -44,6 +45,7 @@ export default function MyActivitiesScreen() {
   const [isRenaming, setIsRenaming] = useState(false);
   const [shareActivity, setShareActivity] = useState<UserActivity | null>(null);
   const [isMapReady, setIsMapReady] = useState(false);
+  const [isLogoReady, setIsLogoReady] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const shareCardRef = useRef<View>(null);
 
@@ -85,11 +87,12 @@ export default function MyActivitiesScreen() {
       return;
     }
     setIsMapReady(false);
+    setIsLogoReady(false);
     setShareActivity(activity);
   };
 
   const shareImage = async () => {
-    if (!shareActivity || !shareCardRef.current || !isMapReady) {
+    if (!shareActivity || !shareCardRef.current || !isMapReady || !isLogoReady) {
       return;
     }
 
@@ -181,9 +184,11 @@ export default function MyActivitiesScreen() {
       <ShareModal
         activity={shareActivity}
         cardRef={shareCardRef}
+        isLogoReady={isLogoReady}
         isMapReady={isMapReady}
         isSharing={isSharing}
         onClose={() => setShareActivity(null)}
+        onLogoReady={() => setIsLogoReady(true)}
         onMapReady={() => setIsMapReady(true)}
         onShare={() => { void shareImage(); }}
       />
@@ -341,20 +346,25 @@ function RenameModal({
 function ShareModal({
   activity,
   cardRef,
+  isLogoReady,
   isMapReady,
   isSharing,
   onClose,
+  onLogoReady,
   onMapReady,
   onShare,
 }: {
   activity: UserActivity | null;
   cardRef: React.RefObject<View | null>;
+  isLogoReady: boolean;
   isMapReady: boolean;
   isSharing: boolean;
   onClose: () => void;
+  onLogoReady: () => void;
   onMapReady: () => void;
   onShare: () => void;
 }) {
+  const isCardReady = isMapReady && isLogoReady;
   return (
     <Modal animationType="slide" onRequestClose={onClose} visible={Boolean(activity)}>
       <View style={styles.shareScreen}>
@@ -365,9 +375,9 @@ function ShareModal({
             <View style={styles.shareClose} />
           </View>
           <ScrollView contentContainerStyle={styles.shareContent} showsVerticalScrollIndicator={false}>
-            {activity ? <ActivityShareCard activity={activity} cardRef={cardRef} onMapReady={onMapReady} /> : null}
-            <Text style={styles.shareHelp}>{isMapReady ? 'La imagen está lista. Elige Instagram, WhatsApp u otra red en el siguiente menú.' : 'Preparando el mapa para que salga nítido…'}</Text>
-            <Pressable accessibilityRole="button" accessibilityState={{ disabled: !isMapReady || isSharing }} disabled={!isMapReady || isSharing} onPress={onShare} style={[styles.shareAction, (!isMapReady || isSharing) && styles.buttonDisabled]}>
+            {activity ? <ActivityShareCard activity={activity} cardRef={cardRef} onLogoReady={onLogoReady} onMapReady={onMapReady} /> : null}
+            <Text style={styles.shareHelp}>{isCardReady ? 'La imagen está lista. Elige Instagram, WhatsApp u otra red en el siguiente menú.' : 'Preparando el mapa y el logo para que salgan nítidos…'}</Text>
+            <Pressable accessibilityRole="button" accessibilityState={{ disabled: !isCardReady || isSharing }} disabled={!isCardReady || isSharing} onPress={onShare} style={[styles.shareAction, (!isCardReady || isSharing) && styles.buttonDisabled]}>
               {isSharing ? <ActivityIndicator color="#111111" /> : <Text style={styles.shareActionText}>Compartir imagen</Text>}
             </Pressable>
           </ScrollView>
@@ -380,10 +390,12 @@ function ShareModal({
 function ActivityShareCard({
   activity,
   cardRef,
+  onLogoReady,
   onMapReady,
 }: {
   activity: UserActivity;
   cardRef: React.RefObject<View | null>;
+  onLogoReady: () => void;
   onMapReady: () => void;
 }) {
   const bounds = routeBounds(activity.route);
@@ -397,7 +409,7 @@ function ActivityShareCard({
   };
   const start = activity.route[0];
   const finish = activity.route.at(-1);
-  const minutes = Math.max(1, Math.round(activity.durationSeconds / 60));
+  const duration = formatShareDuration(activity.durationSeconds);
   const date = new Intl.DateTimeFormat('es-CL', { day: 'numeric', month: 'long', year: 'numeric' }).format(activity.startedAt);
 
   return (
@@ -430,7 +442,9 @@ function ActivityShareCard({
       </Map>
       <View pointerEvents="none" style={styles.shareGradientTop} />
       <View pointerEvents="none" style={styles.shareBrand}>
-        <Image source={transparentLogo} resizeMode="contain" style={styles.shareLogo} />
+        <View style={styles.shareLogoFrame}>
+          <Image fadeDuration={0} onLoadEnd={onLogoReady} source={shareLogoAsset} resizeMode="cover" style={styles.shareLogo} />
+        </View>
         <View><Text style={styles.shareBrandName}>RollersMaps</Text><Text style={styles.shareBrandTagline}>Patinamos juntos con Santiago Rollers</Text></View>
       </View>
       <View pointerEvents="none" style={styles.shareSummary}>
@@ -438,7 +452,7 @@ function ActivityShareCard({
         <Text numberOfLines={2} style={styles.shareTitle}>{activity.title}</Text>
         <View style={styles.shareMetrics}>
           <ShareMetric label="DISTANCIA" value={`${activity.distanceKm.toFixed(2)} km`} />
-          <ShareMetric label="TIEMPO" value={`${minutes} min`} />
+          <ShareMetric label="DURACIÓN" value={duration} />
           <ShareMetric label="VELOCIDAD" value={`${activity.averageSpeedKmh.toFixed(1)} km/h`} />
         </View>
         <Text style={styles.shareCopyright}>© 2026 Manuel Salinas</Text>
@@ -450,6 +464,13 @@ function ActivityShareCard({
 
 function ShareMetric({ label, value }: { label: string; value: string }) {
   return <View style={styles.shareMetric}><Text style={styles.shareMetricLabel}>{label}</Text><Text style={styles.shareMetricValue}>{value}</Text></View>;
+}
+
+function formatShareDuration(durationSeconds: number) {
+  const totalMinutes = Math.max(1, Math.round(durationSeconds / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours ? `${hours} h ${minutes.toString().padStart(2, '0')} min` : `${minutes} min`;
 }
 
 function MapPin({ label, tone }: { label: string; tone: 'start' | 'finish' }) {
@@ -548,7 +569,8 @@ const styles = StyleSheet.create({
   shareCard: { aspectRatio: 9 / 16, backgroundColor: '#07111F', maxWidth: 380, overflow: 'hidden', position: 'relative', width: '100%' },
   shareGradientTop: { backgroundColor: 'rgba(3,9,17,0.5)', height: '28%', left: 0, position: 'absolute', right: 0, top: 0 },
   shareBrand: { alignItems: 'center', flexDirection: 'row', gap: 9, left: 18, position: 'absolute', right: 18, top: 20 },
-  shareLogo: { height: 48, width: 48 },
+  shareLogoFrame: { backgroundColor: '#FFFFFF', borderColor: 'rgba(255,255,255,0.82)', borderRadius: 27, borderWidth: 2, height: 54, overflow: 'hidden', width: 54 },
+  shareLogo: { height: 54, width: 54 },
   shareBrandName: { color: '#FFFFFF', fontSize: 18, fontWeight: '900' },
   shareBrandTagline: { color: '#E4E7EA', fontSize: 8, fontWeight: '700', marginTop: 2 },
   shareSummary: { backgroundColor: 'rgba(4,10,18,0.9)', bottom: 0, left: 0, padding: 21, position: 'absolute', right: 0 },
