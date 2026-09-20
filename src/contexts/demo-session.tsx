@@ -1,8 +1,9 @@
 import { type Session, type User } from '@supabase/supabase-js';
 import * as Linking from 'expo-linking';
 import { AppState, Alert } from 'react-native';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { getTrackingSnapshot } from '@/lib/tracking-store';
 import { supabase } from '@/lib/supabase';
 
 type Profile = {
@@ -52,6 +53,8 @@ function userFacingError(message: string) {
 }
 
 export function DemoSessionProvider({ children }: { children: ReactNode }) {
+  const accountRequest = useRef(0);
+  const busyRegistrations = useRef(new Set<string>());
   const [isLoading, setIsLoading] = useState(true);
   const [joinedActivityIds, setJoinedActivityIds] = useState<string[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -60,6 +63,9 @@ export function DemoSessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
 
   const loadAccountData = useCallback(async (userId: string | undefined) => {
+    const request = ++accountRequest.current;
+    setJoinedActivityIds([]);
+    setProfile(null);
     if (!userId) {
       setJoinedActivityIds([]);
       setProfile(null);
@@ -79,6 +85,7 @@ export function DemoSessionProvider({ children }: { children: ReactNode }) {
         .eq('status', 'registered'),
     ]);
 
+    if (request !== accountRequest.current) return;
     if (profileResult.data) {
       setProfile({
         comuna: profileResult.data.comuna,
@@ -128,7 +135,7 @@ export function DemoSessionProvider({ children }: { children: ReactNode }) {
     });
 
     const authSubscription = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      applySession(nextSession);
+      setTimeout(() => applySession(nextSession), 0);
       setIsLoading(false);
     });
     const linkSubscription = Linking.addEventListener('url', ({ url }) => {
@@ -183,6 +190,7 @@ export function DemoSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    if (getTrackingSnapshot()?.status === 'active') { Alert.alert('Ruta en curso', 'Finaliza tu recorrido antes de cerrar la sesión.'); return; }
     const { error } = await supabase.auth.signOut();
     if (error) {
       Alert.alert('No pudimos cerrar la sesión', userFacingError(error.message));
@@ -190,6 +198,9 @@ export function DemoSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const toggleActivity = useCallback(async (activityId: string) => {
+    if (busyRegistrations.current.has(activityId)) return;
+    busyRegistrations.current.add(activityId);
+    try {
     const isCancelling = joinedActivityIds.includes(activityId);
     const result = isCancelling
       ? await supabase.rpc('cancel_registration', { p_activity_id: activityId })
@@ -217,13 +228,15 @@ export function DemoSessionProvider({ children }: { children: ReactNode }) {
         [{ text: 'Entendido' }],
       );
     }
+    } finally { busyRegistrations.current.delete(activityId); }
   }, [joinedActivityIds]);
 
+  const notifyRecordedActivitySaved = useCallback(() => setRecordedActivityVersion((current) => current + 1), []);
   const value = useMemo<DemoSessionValue>(() => ({
     isJoined: (activityId) => joinedActivityIds.includes(activityId),
     isLoading,
     isSignedIn: Boolean(session),
-    notifyRecordedActivitySaved: () => setRecordedActivityVersion((current) => current + 1),
+    notifyRecordedActivitySaved,
     profile,
     recordedActivityVersion,
     registrationVersion,
@@ -232,7 +245,7 @@ export function DemoSessionProvider({ children }: { children: ReactNode }) {
     signUp,
     toggleActivity,
     user: session?.user ?? null,
-  }), [isLoading, joinedActivityIds, profile, recordedActivityVersion, registrationVersion, session, signIn, signOut, signUp, toggleActivity]);
+  }), [notifyRecordedActivitySaved, isLoading, joinedActivityIds, profile, recordedActivityVersion, registrationVersion, session, signIn, signOut, signUp, toggleActivity]);
 
   return <DemoSessionContext.Provider value={value}>{children}</DemoSessionContext.Provider>;
 }

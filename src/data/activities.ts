@@ -1,6 +1,8 @@
 export type ActivityType = 'clase' | 'ruta' | 'especial' | 'social';
 
 export type AppActivity = {
+  groupId: string;
+  groupName: string;
   id: string;
   type: ActivityType;
   title: string;
@@ -17,6 +19,8 @@ export type AppActivity = {
 };
 
 export type PublishedActivityRow = {
+  group_id: string;
+  group_name: string;
   id: string;
   title: string;
   activity_type: ActivityType;
@@ -59,6 +63,8 @@ export function toAppActivity(row: PublishedActivityRow): AppActivity {
   }).format(date);
 
   return {
+    groupId: row.group_id,
+    groupName: row.group_name,
     capacity: row.capacity,
     date,
     endsAt: row.ends_at ? new Date(row.ends_at) : undefined,

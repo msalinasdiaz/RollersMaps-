@@ -1,49 +1,53 @@
 # RollersMaps
 
-Aplicación móvil de Santiago Rollers para consultar rutas y clases, inscribirse,
-registrar recorridos GPS y administrar actividades personales.
+Aplicación para patinar libre y participar en comunidades. Mapa, GPS, guardado
+local y compartir recorridos disponibles sin pertenecer a un grupo. Los
+calendarios y las reservas requieren membresía activa en su grupo.
 
-**Versión:** 1.3.0
+**Versión en preparación:** 1.4.0 · **Base estable:** 1.3.3
 
-**Creador y titular:** Manuel Salinas
+**Creador y titular:** Manuel Salinas · **Licencia:** propietaria, ver [LICENSE](LICENSE).
 
-**Licencia:** propietaria; consulta [LICENSE](LICENSE).
+## Desarrollo
 
-## Inicio rápido
+Node.js 24 recomendado para ejecutar también las pruebas SQLite. Instalar con
+`npm ci` y abrir Expo con `npm start`. La aplicación necesita una compilación
+nativa por MapLibre y el seguimiento en segundo plano; no basta Expo Go.
 
-Requisitos: Node.js 22.13 o superior, npm y las herramientas de Android cuando
-se necesite una compilación local.
+Crear `.env.local` sin subirlo a Git, con las variables públicas
+`EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+No colocar contraseñas de la base ni claves administrativas en el cliente.
 
-```bash
-npm install
-npx expo start
-```
+## Comprobación automática
 
-Crea `.env.local` sin subirlo a Git:
+`npm run verify` comprueba los tipos de aplicación y pruebas, analiza la calidad
+del código y ejecuta la suite completa. `npm test` ejecuta solo las pruebas.
+PostgreSQL local (PGlite) y SQLite prueban permisos y persistencia sin tocar producción.
 
-```dotenv
-EXPO_PUBLIC_SUPABASE_URL=https://TU-PROYECTO.supabase.co
-EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=TU_CLAVE_PUBLICABLE
-```
+La prueba de capacidad actual es secuencial; la concurrencia de dos conexiones
+remotas y el GPS en teléfonos físicos siguen siendo controles de publicación.
 
-## Comandos
+## Android de prueba
 
-- `npm start`: inicia Expo.
-- `npm run android`: abre la compilación Android de desarrollo.
-- `npm run web`: inicia la versión web.
-- `npm run lint`: ejecuta el análisis estático.
-- `npx tsc --noEmit`: valida TypeScript.
-- `cd android && gradlew.bat assembleRelease`: genera el APK release local.
+Después de generar Android con Expo, `npm run preview:prepare` adapta el proyecto
+nativo generado. Compilar con `assembleRelease -ProllersMapsPreview=true` instala
+el paquete `cl.santiagorollers.rollersmaps.preview`, separado de la app estable.
+La preparación solo cambia la carpeta Android generada e ignorada por Git.
+La firma local es de prueba; no es una firma de distribución de tienda.
 
-## Documentación
+## Base de datos y documentación
 
-- [Manual técnico](docs/MANUAL-TECNICO.md)
-- [Migración Supabase 1.3.0](supabase/migrations/20260912_user_activities_v130.sql)
+- [Modelo acordado](docs/PLAN-1.4.0.md).
+- [Manual actualizado](docs/MANUAL-1.4.0.md).
+- [Revisión de solo lectura previa](supabase/preflight-v140.sql).
+- [Migración de grupos](supabase/migrations/20260920_groups_v140.sql).
+- [Manual histórico 1.3.0](docs/MANUAL-TECNICO.md).
 
-## Seguridad
+Antes de aplicar la migración real, respaldar esquema y datos y comparar el
+esquema existente con la revisión previa. No se debe suponer que una prueba local
+equivale a una validación de la base remota. Git respalda código, no datos de Supabase.
 
-Las claves privadas de Supabase, credenciales de firma y contraseñas nunca deben
-guardarse en Git. La aplicación cliente utiliza solamente la clave publicable y
-protege los datos personales con Row Level Security.
+La etiqueta `backup/v1.3.3-before-groups-20260920` conserva la versión estable.
+El trabajo de grupos se mantiene en `feature/1.4.0-groups`.
 
 Copyright © 2026 Manuel Salinas. Todos los derechos reservados.

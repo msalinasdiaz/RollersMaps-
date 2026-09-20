@@ -10,9 +10,11 @@ import { GpsTargetIcon } from '@/components/gps-target-icon';
 import { useDemoSession } from '@/contexts/demo-session';
 import { activityTypeLabels, getActivityTiming } from '@/data/activities';
 import { useActivities } from '@/hooks/use-activities';
-import { supabase } from '@/lib/supabase';
+import { syncLocalActivities } from '@/lib/local-sync';
 import {
-  clearLocalTrackingSession,
+  archiveTrackingSession,
+  flushLocationQueue,
+  GUEST_OWNER,
   getTrackingSnapshot,
   markTrackingPendingSave,
   startLocalTrackingSession,
@@ -38,14 +40,14 @@ const locationTimeoutMs = 12_000;
 const freeOption: TrackingOption = { groupActivityId: null, id: 'free', kind: 'free', meta: 'Salida personal', title: 'Ruta libre' };
 
 export default function TrackScreen() {
-  const { isSignedIn } = useDemoSession();
-  return isSignedIn ? <Tracker /> : <SignInRequired />;
+  return <Tracker />;
 }
 
 function Tracker() {
   const params = useLocalSearchParams<{ activityId?: string }>();
   const requestedActivityId = Array.isArray(params.activityId) ? params.activityId[0] : params.activityId;
   const { isJoined, notifyRecordedActivitySaved, user } = useDemoSession();
+  const ownerId = user?.id ?? GUEST_OWNER;
   const { activities, isLoading: activitiesLoading } = useActivities(true);
   const [userLocation, setUserLocation] = useState<MapCoordinate | null>(null);
   const [isLocating, setIsLocating] = useState(false);
@@ -77,9 +79,10 @@ function Tracker() {
   const elapsedSeconds = displayedSnapshot?.durationSeconds ?? 0;
   const distanceKm = displayedSnapshot?.distanceKm ?? 0;
   const averageSpeed = displayedSnapshot?.averageSpeedKmh ?? 0;
+  const storedRoute = displayedSnapshot?.route;
   const trackedRoute = useMemo(
-    () => displayedSnapshot?.route.map(({ latitude, longitude }) => ({ latitude, longitude })) ?? [],
-    [displayedSnapshot],
+    () => storedRoute?.map(({ latitude, longitude }) => ({ latitude, longitude })) ?? [],
+    [storedRoute],
   );
   const displayTitle = displayedSnapshot?.title ?? selectedOption.title;
   const displayMeta = displayedSnapshot
@@ -92,11 +95,10 @@ function Tracker() {
   }, []);
 
   useEffect(() => {
-    if (!user) return undefined;
     let isMounted = true;
 
     const refreshLocalTracking = () => {
-      const localSnapshot = getTrackingSnapshot(user.id);
+      const localSnapshot = getTrackingSnapshot(ownerId);
       if (!isMounted) return;
       setSnapshot(localSnapshot);
       const lastPoint = localSnapshot?.route.at(-1);
@@ -104,7 +106,7 @@ function Tracker() {
     };
 
     const restoreTracking = async () => {
-      const localSnapshot = getTrackingSnapshot(user.id);
+      const localSnapshot = getTrackingSnapshot(ownerId);
       if (!isMounted || !localSnapshot) return;
       setSnapshot(localSnapshot);
       const lastPoint = localSnapshot.route.at(-1);
@@ -120,14 +122,14 @@ function Tracker() {
           if (isMounted) setMessage('Recuperamos tu ruta, pero debes reactivar el permiso de ubicación para continuar.');
         }
       } else if (isMounted) {
-        setMessage('Tu recorrido está seguro en este teléfono. Toca Reintentar para guardarlo.');
+        setMessage('Tu recorrido está seguro en este teléfono. Toca Guardar para finalizar.');
       }
     };
 
     void restoreTracking();
     const interval = setInterval(refreshLocalTracking, 1000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [ownerId]);
 
   const getDeviceLocation = useCallback(async (): Promise<Location.LocationObject | null> => {
     if (locationRequestRef.current) return null;
@@ -204,44 +206,23 @@ function Tracker() {
   }, []);
 
   const saveSnapshot = useCallback(async (localSnapshot: TrackingSnapshot) => {
-    if (!user) {
-      setMessage('Tu recorrido está seguro en este teléfono. Inicia sesión para guardarlo.');
-      return false;
-    }
-
     setIsSaving(true);
-    const { error } = await supabase.from('user_activities').insert({
-      activity_type: localSnapshot.activityType,
-      average_speed_kmh: Number(localSnapshot.averageSpeedKmh.toFixed(2)),
-      distance_km: Number(localSnapshot.distanceKm.toFixed(3)),
-      duration_seconds: localSnapshot.durationSeconds,
-      ended_at: new Date(localSnapshot.endedAt ?? Date.now()).toISOString(),
-      group_activity_id: localSnapshot.groupActivityId,
-      route_geojson: localSnapshot.route.length > 1 ? {
-        coordinates: localSnapshot.route.map((item) => [item.longitude, item.latitude]),
-        type: 'LineString',
-      } : null,
-      source: 'rollersmaps',
-      started_at: new Date(localSnapshot.startedAt).toISOString(),
-      sync_status: 'not_connected',
-      title: localSnapshot.title,
-      user_id: user.id,
-    });
-    setIsSaving(false);
-
-    if (error) {
-      setMessage('No pudimos subirla, pero el recorrido quedó seguro en este teléfono.');
-      Alert.alert('Tu ruta no se perdió', 'Revisa la conexión y toca Reintentar guardado.');
+    try {
+      archiveTrackingSession(localSnapshot);
+      setLastCompletedSnapshot(localSnapshot);
+      setSnapshot(null);
+      notifyRecordedActivitySaved();
+      setMessage('Recorrido guardado en este teléfono. Encuéntralo en Mis rutas.');
+      if (user && localSnapshot.userId === user.id) {
+        const error = await syncLocalActivities(user.id);
+        setMessage(error ?? 'Recorrido guardado y respaldado en tu cuenta.');
+        notifyRecordedActivitySaved();
+      }
+      return true;
+    } catch {
+      setMessage('No pudimos completar el guardado. Tu registro sigue disponible para reintentar.');
       return false;
-    }
-
-    clearLocalTrackingSession();
-    setLastCompletedSnapshot(localSnapshot);
-    setSnapshot(null);
-    notifyRecordedActivitySaved();
-    setMessage('Actividad guardada en Mis actividades.');
-    Alert.alert('¡Ruta guardada!', 'Tu actividad quedó guardada de forma privada.');
-    return true;
+    } finally { setIsSaving(false); }
   }, [notifyRecordedActivitySaved, user]);
 
   const toggleTracking = async () => {
@@ -254,8 +235,9 @@ function Tracker() {
     if (isTracking) {
       setIsSaving(true);
       try { await stopActiveLocationService(); } catch { /* The local session still prevents new points. */ }
+      await flushLocationQueue();
       markTrackingPendingSave();
-      const finalSnapshot = getTrackingSnapshot(user?.id);
+      const finalSnapshot = getTrackingSnapshot(ownerId);
       setSnapshot(finalSnapshot);
       setIsSaving(false);
       setMessage('Guardando tu actividad…');
@@ -263,7 +245,6 @@ function Tracker() {
       return;
     }
 
-    if (!user) return;
 
     const initialLocation = await getDeviceLocation();
     if (!initialLocation) return;
@@ -272,23 +253,25 @@ function Tracker() {
       return;
     }
 
+    try {
     startLocalTrackingSession({
       activityType: selectedOption.kind === 'group' ? 'group_activity' : 'free_route',
       groupActivityId: selectedOption.groupActivityId,
       initialLocation,
       title: selectedOption.title,
-      userId: user.id,
+      userId: ownerId,
     });
-    const localSnapshot = getTrackingSnapshot(user.id);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'No pudimos iniciar el recorrido.'); return; }
+    const localSnapshot = getTrackingSnapshot(ownerId);
     setSnapshot(localSnapshot);
     setLastCompletedSnapshot(null);
     setMessage('Ruta en curso. Puedes apagar la pantalla o dejar la app en segundo plano.');
     try {
       await startActiveLocationService();
     } catch {
-      clearLocalTrackingSession();
-      setSnapshot(null);
-      setMessage('No pudimos iniciar el seguimiento. Revisa los permisos del GPS.');
+      markTrackingPendingSave();
+      setSnapshot(getTrackingSnapshot(ownerId));
+      setMessage('No pudimos mantener el GPS activo. Puedes guardar el registro y revisar los permisos.');
     }
   };
 
@@ -297,7 +280,8 @@ function Tracker() {
     router.back();
   };
 
-  if (requestedActivityId && activitiesLoading) return <LoadingScreen />;
+  if (requestedActivityId && activitiesLoading && !snapshot) return <LoadingScreen />;
+  if (requestedActivityId && !requestedActivity && !snapshot) return <View style={[styles.screen, { justifyContent: 'center', padding: 24, gap: 20 }]}><Text style={{ color: '#FFFFFF', fontSize: 18 }}>Esta actividad no está disponible para tu cuenta.</Text><Pressable accessibilityRole="button" onPress={() => router.replace('/track')}><Text style={{ color: '#FF9A45', fontSize: 17 }}>Patinar libre</Text></Pressable></View>;
 
   return (
     <View style={styles.screen}>
@@ -447,18 +431,6 @@ function LoadingScreen() {
   return <View style={styles.required}><ActivityIndicator color="#FF7900" size="large" /><Text style={styles.requiredText}>Preparando tu actividad…</Text></View>;
 }
 
-function SignInRequired() {
-  return (
-    <SafeAreaView style={styles.required}>
-      <Text style={styles.requiredIcon}>GPS</Text>
-      <Text style={styles.requiredTitle}>Inicia sesión para registrar tu ruta</Text>
-      <Text style={styles.requiredText}>Así tus recorridos quedan guardados de forma privada en tu cuenta.</Text>
-      <Pressable accessibilityRole="button" onPress={() => router.replace('/')} style={styles.requiredButton}>
-        <Text style={styles.requiredButtonText}>Volver al inicio</Text>
-      </Pressable>
-    </SafeAreaView>
-  );
-}
 
 function formatDuration(seconds: number) {
   const hours = Math.floor(seconds / 3600);

@@ -2,6 +2,7 @@ import type { LocationObject } from 'expo-location';
 import * as SQLite from 'expo-sqlite';
 
 export const BACKGROUND_LOCATION_TASK = 'rollersmaps-active-route-location';
+export const GUEST_OWNER = 'guest';
 
 const DATABASE_NAME = 'rollersmaps-tracking.db';
 const MAX_LOCATION_ACCURACY_METERS = 50;
@@ -18,6 +19,7 @@ export type StoredCoordinate = {
 };
 
 export type TrackingSnapshot = {
+  recordId: string;
   activityType: 'free_route' | 'group_activity';
   averageSpeedKmh: number;
   distanceKm: number;
@@ -33,6 +35,7 @@ export type TrackingSnapshot = {
 };
 
 type SessionRow = {
+  record_id: string;
   activity_type: TrackingSnapshot['activityType'];
   distance_km: number;
   ended_at: number | null;
@@ -59,6 +62,7 @@ type PointRow = {
 let database: SQLite.SQLiteDatabase | null = null;
 let backgroundDatabasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
 let appendQueue: Promise<void> = Promise.resolve();
+let routeCache: { key: string; route: StoredCoordinate[] } | null = null;
 
 function getDatabase() {
   if (database) return database;
@@ -92,7 +96,14 @@ function getDatabase() {
       reported_speed_kmh REAL
     );
     CREATE INDEX IF NOT EXISTS tracking_points_timestamp_idx ON tracking_points(timestamp);
+    CREATE TABLE IF NOT EXISTS local_activities (
+      record_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, snapshot TEXT NOT NULL,
+      cloud_id TEXT, saved_at INTEGER NOT NULL
+    );
   `);
+  const columns = database.getAllSync<{ name: string }>('PRAGMA table_info(tracking_session)');
+  if (!columns.some((column) => column.name === 'record_id')) database.execSync('ALTER TABLE tracking_session ADD COLUMN record_id TEXT');
+  database.runSync("UPDATE tracking_session SET record_id = 'legacy-' || user_id || '-' || started_at WHERE record_id IS NULL");
   return database;
 }
 
@@ -121,6 +132,8 @@ export function startLocalTrackingSession({
 }) {
   const db = getDatabase();
   const point = toStoredCoordinate(initialLocation);
+  if (!isUsablePoint(point)) throw new Error('Espera una señal GPS más precisa antes de comenzar.');
+  if (db.getFirstSync('SELECT id FROM tracking_session WHERE id=1')) throw new Error('Hay un recorrido pendiente. Finalízalo antes de comenzar otro.');
 
   db.withTransactionSync(() => {
     db.runSync('DELETE FROM tracking_points');
@@ -139,6 +152,7 @@ export function startLocalTrackingSession({
       point.timestamp,
       point.accuracy,
     );
+    db.runSync('UPDATE tracking_session SET record_id=? WHERE id=1', `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`);
     db.runSync(
       `INSERT OR IGNORE INTO tracking_points
         (latitude, longitude, timestamp, accuracy, reported_speed_kmh)
@@ -163,7 +177,8 @@ export function appendLocationBatch(locations: LocationObject[]) {
 
 async function appendLocationBatchInternal(locations: LocationObject[]) {
   const db = await getBackgroundDatabase();
-  const session = await db.getFirstAsync<SessionRow>("SELECT * FROM tracking_session WHERE id = 1 AND status = 'active'");
+  await db.withExclusiveTransactionAsync(async (transaction) => {
+  const session = await transaction.getFirstAsync<SessionRow>("SELECT * FROM tracking_session WHERE id = 1 AND status = 'active'");
   if (!session) return;
 
   let previous: StoredCoordinate = {
@@ -176,7 +191,6 @@ async function appendLocationBatchInternal(locations: LocationObject[]) {
   let distanceKm = session.distance_km;
   let rejectedPoints = session.rejected_points;
 
-  await db.withExclusiveTransactionAsync(async (transaction) => {
     for (const location of [...locations].sort((left, right) => left.timestamp - right.timestamp)) {
       const next = toStoredCoordinate(location);
       if (!isUsablePoint(next) || next.timestamp <= previous.timestamp) {
@@ -229,14 +243,19 @@ async function appendLocationBatchInternal(locations: LocationObject[]) {
 export function getTrackingSnapshot(userId?: string): TrackingSnapshot | null {
   const db = getDatabase();
   const session = db.getFirstSync<SessionRow>('SELECT * FROM tracking_session WHERE id = 1');
-  if (!session || (userId && session.user_id !== userId)) return null;
+  if (!session || (userId && session.user_id !== userId && session.user_id !== GUEST_OWNER)) return null;
 
-  const route = db.getAllSync<PointRow>('SELECT latitude, longitude, timestamp, accuracy, reported_speed_kmh FROM tracking_points ORDER BY timestamp');
+  const key = session.record_id + ':' + session.last_timestamp;
+  if (routeCache?.key !== key) {
+    const points = db.getAllSync<PointRow>('SELECT latitude, longitude, timestamp, accuracy, reported_speed_kmh FROM tracking_points ORDER BY timestamp');
+    routeCache = { key, route: points.map((point) => ({ accuracy: point.accuracy, latitude: point.latitude, longitude: point.longitude, reportedSpeedKmh: point.reported_speed_kmh, timestamp: point.timestamp })) };
+  }
   const endedAt = session.ended_at;
   const durationSeconds = Math.max(0, Math.floor(((endedAt ?? Date.now()) - session.started_at) / 1000));
   const distanceKm = Number(session.distance_km) || 0;
 
   return {
+    recordId: session.record_id,
     activityType: session.activity_type,
     averageSpeedKmh: durationSeconds > 0 ? distanceKm / (durationSeconds / 3600) : 0,
     distanceKm,
@@ -244,13 +263,7 @@ export function getTrackingSnapshot(userId?: string): TrackingSnapshot | null {
     endedAt,
     groupActivityId: session.group_activity_id,
     rejectedPoints: session.rejected_points,
-    route: route.map((point) => ({
-      accuracy: point.accuracy,
-      latitude: point.latitude,
-      longitude: point.longitude,
-      reportedSpeedKmh: point.reported_speed_kmh,
-      timestamp: point.timestamp,
-    })),
+    route: routeCache.route,
     startedAt: session.started_at,
     status: session.status,
     title: session.title,
@@ -270,7 +283,7 @@ export function clearLocalTrackingSession() {
   });
 }
 
-function toStoredCoordinate(location: LocationObject): StoredCoordinate {
+export function toStoredCoordinate(location: LocationObject): StoredCoordinate {
   const reportedSpeedKmh = typeof location.coords.speed === 'number' && location.coords.speed >= 0
     ? location.coords.speed * 3.6
     : null;
@@ -283,8 +296,9 @@ function toStoredCoordinate(location: LocationObject): StoredCoordinate {
   };
 }
 
-function isUsablePoint(point: StoredCoordinate) {
-  return Number.isFinite(point.latitude)
+export function isUsablePoint(point: StoredCoordinate) {
+  return Number.isFinite(point.timestamp) && point.timestamp > 0
+    && Number.isFinite(point.latitude)
     && Number.isFinite(point.longitude)
     && point.latitude >= -90
     && point.latitude <= 90
@@ -295,7 +309,7 @@ function isUsablePoint(point: StoredCoordinate) {
     && point.accuracy <= MAX_LOCATION_ACCURACY_METERS;
 }
 
-function distanceBetweenMeters(start: StoredCoordinate, end: StoredCoordinate) {
+export function distanceBetweenMeters(start: StoredCoordinate, end: StoredCoordinate) {
   const earthRadiusMeters = 6_371_000;
   const toRadians = (value: number) => value * (Math.PI / 180);
   const latitudeDifference = toRadians(end.latitude - start.latitude);
@@ -303,4 +317,36 @@ function distanceBetweenMeters(start: StoredCoordinate, end: StoredCoordinate) {
   const angle = Math.sin(latitudeDifference / 2) ** 2
     + Math.cos(toRadians(start.latitude)) * Math.cos(toRadians(end.latitude)) * Math.sin(longitudeDifference / 2) ** 2;
   return earthRadiusMeters * (2 * Math.atan2(Math.sqrt(angle), Math.sqrt(1 - angle)));
+}
+
+export async function flushLocationQueue() { await appendQueue; }
+export type LocalActivity = { snapshot: TrackingSnapshot; cloudId: string | null; ownerId: string };
+
+export function archiveTrackingSession(snapshot: TrackingSnapshot) {
+  const db = getDatabase();
+  if (snapshot.status !== 'pending_save') throw new Error('Finaliza el recorrido antes de guardarlo.');
+  const current = db.getFirstSync<SessionRow>('SELECT * FROM tracking_session WHERE id=1');
+  if (!current || current.record_id !== snapshot.recordId) throw new Error('El recorrido activo ha cambiado.');
+  db.withTransactionSync(() => {
+    db.runSync('INSERT OR IGNORE INTO local_activities(record_id,owner_id,snapshot,saved_at) VALUES(?,?,?,?)', snapshot.recordId, snapshot.userId, JSON.stringify(snapshot), Date.now());
+    db.runSync('DELETE FROM tracking_points');
+    db.runSync('DELETE FROM tracking_session WHERE record_id=?', snapshot.recordId);
+  });
+  routeCache = null;
+}
+export function getLocalActivities(ownerId: string): LocalActivity[] {
+  return getDatabase().getAllSync<{ snapshot: string; cloud_id: string | null; owner_id: string }>(
+    'SELECT snapshot,cloud_id,owner_id FROM local_activities WHERE owner_id=? OR owner_id=? ORDER BY saved_at DESC', ownerId, GUEST_OWNER,
+  ).map((row) => ({ snapshot: JSON.parse(row.snapshot), cloudId: row.cloud_id, ownerId: row.owner_id }));
+}
+export function renameLocalActivity(recordId: string, ownerId: string, title: string) {
+  const record = getLocalActivities(ownerId).find((item) => item.snapshot.recordId === recordId);
+  if (!record) throw new Error('El recorrido no está disponible.');
+  getDatabase().runSync('UPDATE local_activities SET snapshot=? WHERE record_id=?', JSON.stringify({ ...record.snapshot, title }), recordId);
+}
+export function claimLocalActivity(recordId: string, ownerId: string) {
+  getDatabase().runSync('UPDATE local_activities SET owner_id=? WHERE record_id=? AND owner_id=?', ownerId, recordId, GUEST_OWNER);
+}
+export function markLocalActivitySynced(recordId: string, ownerId: string, cloudId: string) {
+  getDatabase().runSync('UPDATE local_activities SET cloud_id=? WHERE record_id=? AND owner_id=?', cloudId, recordId, ownerId);
 }

@@ -20,6 +20,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { captureRef } from 'react-native-view-shot';
 
+import { Button, Notice, ui } from '@/components/community-ui';
 import { activityTypeLabels, type AppActivity } from '@/data/activities';
 import { useDemoSession } from '@/contexts/demo-session';
 import { useActivities } from '@/hooks/use-activities';
@@ -31,14 +32,17 @@ const mapStyleUrl = 'https://tiles.openfreemap.org/styles/liberty';
 
 export default function MyActivitiesScreen() {
   const { isJoined, isSignedIn } = useDemoSession();
-  const { activities: groupActivities, isLoading: groupLoading } = useActivities(isSignedIn);
+  const { activities: groupActivities, isLoading: groupLoading, error: groupError, refresh: refreshGroups } = useActivities(isSignedIn);
   const {
     activities: recordedActivities,
     error: recordedError,
     isLoading: recordedLoading,
     renameActivity,
-  } = useUserActivities(isSignedIn);
-  const [section, setSection] = useState<'group' | 'gps'>('group');
+    sync,
+  } = useUserActivities(true);
+  const [section, setSection] = useState<'group' | 'gps'>('gps');
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [editingActivity, setEditingActivity] = useState<UserActivity | null>(null);
   const [draftTitle, setDraftTitle] = useState('');
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -56,9 +60,6 @@ export default function MyActivitiesScreen() {
     [groupActivities, isJoined],
   );
 
-  if (!isSignedIn) {
-    return <SignInRequired />;
-  }
 
   const openRename = (activity: UserActivity) => {
     setEditingActivity(activity);
@@ -139,8 +140,8 @@ export default function MyActivitiesScreen() {
           </View>
 
           <View>
-            <Text style={styles.title}>Mis actividades</Text>
-            <Text style={styles.subtitle}>Tus inscripciones y registros GPS, ordenados sin llenarte la pantalla de información.</Text>
+            <Text style={styles.title}>Mis rutas</Text>
+            <Text style={styles.subtitle}>Tus recorridos personales y las actividades en las que participas.</Text>
           </View>
 
           <View style={styles.segmentedControl}>
@@ -153,7 +154,7 @@ export default function MyActivitiesScreen() {
           </View>
 
           {section === 'group' ? (
-            <RegistrationList activities={registrations} isLoading={groupLoading} />
+            !isSignedIn ? <Notice title="Tus actividades de grupo" text="Ingresa para ver tus inscripciones." action="Ingresar" onAction={() => router.push('/auth')} /> : groupError ? <Notice title="No pudimos cargar tus inscripciones" action="Reintentar" onAction={() => void refreshGroups()} /> : <RegistrationList activities={registrations} isLoading={groupLoading} />
           ) : (
             <RecordedList
               activities={recordedActivities}
@@ -164,10 +165,11 @@ export default function MyActivitiesScreen() {
             />
           )}
 
-          <View style={styles.futureCard}>
-            <Text style={styles.futureTitle}>Integración de salud</Text>
-            <Text style={styles.futureText}>La conexión con Google Health Connect queda contemplada para una versión futura. Hasta entonces, tus recorridos se guardan de forma privada en RollersMaps.</Text>
-          </View>
+          {section === 'gps' ? <View style={{ gap: 12 }}><Text style={ui.muted}>{isSignedIn ? 'Los recorridos pendientes permanecen en este teléfono hasta que los respaldes.' : 'Tus recorridos quedan en este teléfono. Puedes compartirlos sin pertenecer a un grupo.'}</Text><Button secondary busy={syncing} onPress={() => {
+            if (!isSignedIn) { router.push('/auth'); return; }
+            setSyncing(true);
+            void sync().then((error) => setSyncMessage(error ?? 'Tus recorridos están respaldados en tu cuenta.')).finally(() => setSyncing(false));
+          }}>{isSignedIn ? 'Respaldar rutas de este teléfono' : 'Ingresar para respaldar mis rutas'}</Button>{syncMessage ? <Text accessibilityLiveRegion="polite" style={ui.muted}>{syncMessage}</Text> : null}</View> : null}
           <Text style={styles.copyright}>© 2026 Manuel Salinas · Todos los derechos reservados</Text>
         </ScrollView>
       </SafeAreaView>
@@ -242,7 +244,7 @@ function RecordedList({
     return <LoadingState text="Cargando tus registros GPS…" />;
   }
   if (!activities.length) {
-    return <EmptyState title={error ? 'Falta activar el historial' : 'Aún no tienes registros GPS'} text={error ? 'Ejecuta la migración de Supabase incluida en los entregables y vuelve a intentar.' : 'Inicia un registro desde Rutas > Mapa. Al terminar quedará guardado acá.'} />;
+    return <EmptyState title={error ? 'No pudimos cargar tus recorridos' : 'Aún no tienes recorridos'} text={error ?? 'Toca Patinar libre en Inicio. Al terminar, tu recorrido quedará guardado aquí.'} />;
   }
 
   return (
@@ -259,6 +261,7 @@ function RecordedList({
             </View>
             <Text style={styles.cardTitle}>{activity.title}</Text>
             <Text style={styles.cardMeta}>{date}</Text>
+            <Text style={styles.cardMeta}>{activity.cloudId ? 'Respaldado en tu cuenta' : 'Guardado en este teléfono'}</Text>
             <View style={styles.metrics}>
               <Metric label="Distancia" value={`${activity.distanceKm.toFixed(2)} km`} />
               <Metric label="Tiempo" value={`${minutes} min`} />
@@ -268,11 +271,9 @@ function RecordedList({
               <Pressable accessibilityRole="button" onPress={() => onRename(activity)} style={styles.secondaryButton}>
                 <Text style={styles.secondaryButtonText}>Renombrar</Text>
               </Pressable>
-              {isLatest ? (
-                <Pressable accessibilityRole="button" accessibilityState={{ disabled: activity.route.length < 2 }} disabled={activity.route.length < 2} onPress={() => onShare(activity)} style={[styles.shareButton, activity.route.length < 2 && styles.buttonDisabled]}>
-                  <Text style={styles.shareButtonText}>Compartir última</Text>
-                </Pressable>
-              ) : null}
+              <Pressable accessibilityRole="button" accessibilityState={{ disabled: activity.route.length < 2 }} disabled={activity.route.length < 2} onPress={() => onShare(activity)} style={[styles.shareButton, activity.route.length < 2 && styles.buttonDisabled]}>
+                <Text style={styles.shareButtonText}>Compartir</Text>
+              </Pressable>
             </View>
           </View>
         );
@@ -445,7 +446,7 @@ function ActivityShareCard({
         <View style={styles.shareLogoFrame}>
           <Image fadeDuration={0} onLoadEnd={onLogoReady} source={shareLogoAsset} resizeMode="cover" style={styles.shareLogo} />
         </View>
-        <View><Text style={styles.shareBrandName}>RollersMaps</Text><Text style={styles.shareBrandTagline}>Patinamos juntos con Santiago Rollers</Text></View>
+        <View><Text style={styles.shareBrandName}>RollersMaps</Text><Text style={styles.shareBrandTagline}>Tu recorrido, tu comunidad</Text></View>
       </View>
       <View pointerEvents="none" style={styles.shareSummary}>
         <Text style={styles.shareEyebrow}>MI ACTIVIDAD · {date.toUpperCase()}</Text>
@@ -489,16 +490,6 @@ function routeBounds(route: UserActivity['route']): [number, number, number, num
   return [west - longitudePadding, south - latitudePadding, east + longitudePadding, north + latitudePadding];
 }
 
-function SignInRequired() {
-  return (
-    <View style={[styles.screen, styles.required]}>
-      <StatusBar style="light" />
-      <Image source={transparentLogo} resizeMode="contain" style={styles.requiredLogo} />
-      <Text style={styles.requiredTitle}>Ingresa para ver tus actividades</Text>
-      <Pressable onPress={() => router.replace('/')} style={styles.shareAction}><Text style={styles.shareActionText}>Ir a Inicio</Text></Pressable>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: '#070707', flex: 1 },

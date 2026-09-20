@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
+import { CommunityProvider } from '@/contexts/community';
 import { DemoSessionProvider } from '@/contexts/demo-session';
 import { getTrackingSnapshot } from '@/lib/tracking-store';
 import { startActiveLocationService } from '@/tasks/background-location';
@@ -24,13 +25,13 @@ export default function TabLayout() {
 
   return (
     <DemoSessionProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <CommunityProvider><ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AnimatedSplashOverlay />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="track" options={{ animation: 'slide_from_bottom' }} />
         </Stack>
-      </ThemeProvider>
+      </ThemeProvider></CommunityProvider>
     </DemoSessionProvider>
   );
 }
