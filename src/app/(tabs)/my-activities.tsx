@@ -377,11 +377,13 @@ function ShareModal({
           </View>
           <ScrollView contentContainerStyle={styles.shareContent} showsVerticalScrollIndicator={false}>
             {activity ? <ActivityShareCard activity={activity} cardRef={cardRef} onLogoReady={onLogoReady} onMapReady={onMapReady} /> : null}
-            <Text style={styles.shareHelp}>{isCardReady ? 'La imagen está lista. Elige Instagram, WhatsApp u otra red en el siguiente menú.' : 'Preparando el mapa y el logo para que salgan nítidos…'}</Text>
+          </ScrollView>
+          <View style={styles.shareFooter}>
+            <Text style={styles.shareHelp}>{isCardReady ? 'La imagen está lista para compartir.' : 'Preparando el mapa y el logo…'}</Text>
             <Pressable accessibilityRole="button" accessibilityState={{ disabled: !isCardReady || isSharing }} disabled={!isCardReady || isSharing} onPress={onShare} style={[styles.shareAction, (!isCardReady || isSharing) && styles.buttonDisabled]}>
               {isSharing ? <ActivityIndicator color="#111111" /> : <Text style={styles.shareActionText}>Compartir imagen</Text>}
             </Pressable>
-          </ScrollView>
+          </View>
         </SafeAreaView>
       </View>
     </Modal>
@@ -556,7 +558,8 @@ const styles = StyleSheet.create({
   shareClose: { alignItems: 'center', height: 42, justifyContent: 'center', width: 42 },
   shareCloseText: { color: '#FFFFFF', fontSize: 32, fontWeight: '300' },
   shareHeaderTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
-  shareContent: { alignItems: 'center', gap: 14, padding: 18, paddingBottom: 50 },
+  shareContent: { alignItems: 'center', gap: 14, padding: 18 },
+  shareFooter: { alignItems: 'center', backgroundColor: '#090909', borderTopColor: '#292929', borderTopWidth: 1, gap: 10, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 14 },
   shareCard: { aspectRatio: 9 / 16, backgroundColor: '#07111F', maxWidth: 380, overflow: 'hidden', position: 'relative', width: '100%' },
   shareGradientTop: { backgroundColor: 'rgba(3,9,17,0.5)', height: '28%', left: 0, position: 'absolute', right: 0, top: 0 },
   shareBrand: { alignItems: 'center', flexDirection: 'row', gap: 9, left: 18, position: 'absolute', right: 18, top: 20 },

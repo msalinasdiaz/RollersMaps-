@@ -24,6 +24,10 @@ No colocar contraseñas de la base ni claves administrativas en el cliente.
 del código y ejecuta la suite completa. `npm test` ejecuta solo las pruebas.
 PostgreSQL local (PGlite) y SQLite prueban permisos y persistencia sin tocar producción.
 
+GitHub Actions ejecuta la misma rutina en cada cambio de `main` y `feature/**`,
+y en solicitudes de integración. Usa Node.js 24, dependencias del archivo de
+bloqueo y permisos de lectura. No requiere secretos de Supabase ni despliega.
+
 La prueba de capacidad actual es secuencial; la concurrencia de dos conexiones
 remotas y el GPS en teléfonos físicos siguen siendo controles de publicación.
 
@@ -39,6 +43,7 @@ La firma local es de prueba; no es una firma de distribución de tienda.
 
 - [Modelo acordado](docs/PLAN-1.4.0.md).
 - [Manual actualizado](docs/MANUAL-1.4.0.md).
+- [Informe de validación y pendientes](docs/VALIDACION-1.4.0.md).
 - [Revisión de solo lectura previa](supabase/preflight-v140.sql).
 - [Migración de grupos](supabase/migrations/20260920_groups_v140.sql).
 - [Manual histórico 1.3.0](docs/MANUAL-TECNICO.md).
