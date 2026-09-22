@@ -44,6 +44,7 @@ beforeAll(async()=>{
     await db.exec(readFileSync('supabase/migrations/20260921_account_required.sql','utf8'));
     await db.exec(readFileSync('supabase/migrations/20260922_calendar_privacy_logos.sql','utf8'));
     await db.exec(readFileSync('supabase/migrations/20260922_group_approval.sql','utf8'));
+    await db.exec(readFileSync('supabase/migrations/20260922_platform_groups.sql','utf8'));
 });
 afterAll(async()=>{await db.close()});
 describe('Permisos reales de PostgreSQL y membresías',()=>{
@@ -52,6 +53,7 @@ describe('Permisos reales de PostgreSQL y membresías',()=>{
     await db.exec(readFileSync('supabase/migrations/20260921_account_required.sql','utf8'));
     await db.exec(readFileSync('supabase/migrations/20260922_calendar_privacy_logos.sql','utf8'));
     await db.exec(readFileSync('supabase/migrations/20260922_group_approval.sql','utf8'));
+    await db.exec(readFileSync('supabase/migrations/20260922_platform_groups.sql','utf8'));
     const result=await db.query('select user_id from group_memberships');
     expect(result.rows).toEqual([{user_id:owner}]);
     expect((await db.query('select count(*)::int as n from activities')).rows).toEqual([{n:1}]);
@@ -213,5 +215,35 @@ describe('Aprobación central y vencimiento de grupos nuevos',()=>{
     expect((await db.query('select id from groups where id=$1',[id])).rows).toHaveLength(0);
     const retry=(await as(member,"select create_group('Nuevo intento','','','approval') id")).rows;
     expect(retry).toHaveLength(1);
+  });
+
+  it('la administración general ve grupos de otros creadores y todos los estados sin ampliar permisos de grupo',async()=>{
+    const pending=(await db.query("select id from groups where owner_id=$1 and approval_status='pending'",[member])).rows[0] as {id:string};
+    const rejected=(await as(stranger,"select create_group('Solicitud rechazada','Descripción','Valparaíso','approval') as id")).rows[0] as {id:string};
+    await as(owner,"select review_group_creation($1,'reject')",[rejected.id]);
+    const all=(await as(owner,'select get_platform_groups() items')).rows[0] as {items:{id:string;approval_status:string;requester_name:string}[]};
+    expect(all.items.find(g=>g.id===other)).toMatchObject({approval_status:'approved',requester_name:'Otro patinador'});
+    expect(all.items.find(g=>g.id===pending.id)).toMatchObject({approval_status:'pending',requester_name:'Miembro'});
+    expect(all.items.find(g=>g.id===rejected.id)).toMatchObject({approval_status:'rejected'});
+    await expect(as(member,'select get_platform_groups()')).rejects.toThrow(/administración general/);
+    await expect(as(stranger,'select get_platform_groups()')).rejects.toThrow(/administración general/);
+    await expect(as(null,'select get_platform_groups()')).rejects.toThrow(/permission denied/);
+    await expect(as(owner,'select get_group_members($1)',[other])).rejects.toThrow(/administrar/);
+    await as(owner,"select review_group_creation($1,'approve')",[pending.id]);
+    const approved=(await as(owner,'select get_platform_groups() items')).rows[0] as {items:{id:string;approval_status:string;member_count:number}[]};
+    expect(approved.items.find(g=>g.id===pending.id)).toMatchObject({approval_status:'approved',member_count:1});
+    await db.query("update groups set approval_expires_at=now()-interval '1 second' where id=$1",[rejected.id]);
+    const expired=(await as(owner,'select get_platform_groups() items')).rows[0] as {items:{id:string}[]};
+    expect(expired.items.some(g=>g.id===rejected.id)).toBe(false);
+    await db.query("select purge_expired_group_requests()");
+  });
+  it('la administración general funciona incluso sin ser miembro de ningún grupo',async()=>{
+    await db.transaction(async tx=>{
+      await tx.exec("delete from group_memberships where user_id='"+owner+"'");
+      await tx.exec('set local role authenticated');
+      await tx.query("select set_config('request.jwt.claim.sub',$1,true)",[owner]);
+      expect((await tx.query<{admin:boolean}>("select is_platform_admin() admin")).rows[0].admin).toBe(true);
+      expect((await tx.query<{items:unknown[]}>("select get_platform_groups() items")).rows[0].items.length).toBeGreaterThan(1);
+    });
   });
 });
