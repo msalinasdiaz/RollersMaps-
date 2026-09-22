@@ -1,6 +1,6 @@
 import { Camera, type CameraRef, GeoJSONSource, Layer, Map, ViewAnnotation } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
-import { router, useLocalSearchParams } from 'expo-router';
+import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -14,7 +14,6 @@ import { syncLocalActivities } from '@/lib/local-sync';
 import {
   archiveTrackingSession,
   flushLocationQueue,
-  GUEST_OWNER,
   getTrackingSnapshot,
   markTrackingPendingSave,
   startLocalTrackingSession,
@@ -40,14 +39,15 @@ const locationTimeoutMs = 12_000;
 const freeOption: TrackingOption = { groupActivityId: null, id: 'free', kind: 'free', meta: 'Salida personal', title: 'Ruta libre' };
 
 export default function TrackScreen() {
-  return <Tracker />;
+  const { user } = useDemoSession();
+  if (!user) return <Redirect href="/welcome" />;
+  return <Tracker key={user.id} ownerId={user.id} />;
 }
 
-function Tracker() {
+function Tracker({ ownerId }: { ownerId: string }) {
   const params = useLocalSearchParams<{ activityId?: string }>();
   const requestedActivityId = Array.isArray(params.activityId) ? params.activityId[0] : params.activityId;
   const { isJoined, notifyRecordedActivitySaved, user } = useDemoSession();
-  const ownerId = user?.id ?? GUEST_OWNER;
   const { activities, isLoading: activitiesLoading } = useActivities(true);
   const [userLocation, setUserLocation] = useState<MapCoordinate | null>(null);
   const [isLocating, setIsLocating] = useState(false);
@@ -58,6 +58,7 @@ function Tracker() {
   const [referenceTime, setReferenceTime] = useState(() => new Date());
   const [recenterRequest, setRecenterRequest] = useState(0);
   const locationRequestRef = useRef(false);
+  const screenMountedRef = useRef(true);
 
   const requestedActivity = useMemo(
     () => requestedActivityId ? activities.find((item) => item.id === requestedActivityId && isJoined(item.id)) : undefined,
@@ -96,6 +97,7 @@ function Tracker() {
 
   useEffect(() => {
     let isMounted = true;
+    screenMountedRef.current = true;
 
     const refreshLocalTracking = () => {
       const localSnapshot = getTrackingSnapshot(ownerId);
@@ -128,7 +130,7 @@ function Tracker() {
 
     void restoreTracking();
     const interval = setInterval(refreshLocalTracking, 1000);
-    return () => clearInterval(interval);
+    return () => { isMounted = false; screenMountedRef.current = false; clearInterval(interval); };
   }, [ownerId]);
 
   const getDeviceLocation = useCallback(async (): Promise<Location.LocationObject | null> => {
@@ -253,6 +255,7 @@ function Tracker() {
       return;
     }
 
+    if (!screenMountedRef.current) return;
     try {
     startLocalTrackingSession({
       activityType: selectedOption.kind === 'group' ? 'group_activity' : 'free_route',

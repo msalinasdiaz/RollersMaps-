@@ -11,7 +11,7 @@ export function syncLocalActivities(userId: string, includeGuests = false): Prom
   return pending;
 }
 async function sync(userId: string, includeGuests: boolean): Promise<string | null> {
-  for (const record of getLocalActivities(userId)) {
+  for (const record of getLocalActivities(userId, includeGuests)) {
     if (record.cloudId || (record.ownerId === GUEST_OWNER && !includeGuests)) continue;
     // Identity is rechecked before each write; a changed account never claims these routes.
     const { data: { session } } = await supabase.auth.getSession();

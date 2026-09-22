@@ -103,7 +103,9 @@ export function DemoSessionProvider({ children }: { children: ReactNode }) {
 
   const applySession = useCallback((nextSession: Session | null) => {
     setSession(nextSession);
-    void loadAccountData(nextSession?.user.id);
+    void loadAccountData(nextSession?.user.id).catch(() => {
+      // The saved session remains usable when account details cannot load offline.
+    });
   }, [loadAccountData]);
 
   const handleAuthUrl = useCallback(async (url: string) => {
@@ -126,17 +128,24 @@ export function DemoSessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let isMounted = true;
+    let authRevision = 0;
 
     void supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-      if (isMounted) {
+      if (isMounted && authRevision === 0) {
         applySession(currentSession);
         setIsLoading(false);
       }
+    }).catch(() => {
+      if (isMounted && authRevision === 0) setIsLoading(false);
     });
 
     const authSubscription = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setTimeout(() => applySession(nextSession), 0);
-      setIsLoading(false);
+      const revision = ++authRevision;
+      setTimeout(() => {
+        if (!isMounted || revision !== authRevision) return;
+        applySession(nextSession);
+        setIsLoading(false);
+      }, 0);
     });
     const linkSubscription = Linking.addEventListener('url', ({ url }) => {
       void handleAuthUrl(url);

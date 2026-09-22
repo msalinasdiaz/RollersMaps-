@@ -38,6 +38,8 @@ export default function MyActivitiesScreen() {
     error: recordedError,
     isLoading: recordedLoading,
     renameActivity,
+    legacyCount,
+    recoverLegacy,
     sync,
   } = useUserActivities(true);
   const [section, setSection] = useState<'group' | 'gps'>('gps');
@@ -153,6 +155,16 @@ export default function MyActivitiesScreen() {
             </Pressable>
           </View>
 
+          {section === 'gps' && legacyCount > 0 ? <Notice
+            title="Recorridos anteriores en este teléfono"
+            text={'Encontramos ' + legacyCount + ' recorridos guardados sin cuenta. Puedes recuperarlos si son tuyos.'}
+            action="Recuperar mis recorridos"
+            onAction={() => Alert.alert('¿Estos recorridos son tuyos?', 'Se vincularán a tu cuenta y dejarán de estar disponibles para otras cuentas de este teléfono.', [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Son mis rutas', onPress: () => { recoverLegacy(); setSyncMessage('Tus recorridos anteriores ya están vinculados a tu cuenta en este teléfono. Puedes respaldarlos cuando tengas conexión.'); } },
+            ])}
+          /> : null}
+
           {section === 'group' ? (
             !isSignedIn ? <Notice title="Tus actividades de grupo" text="Ingresa para ver tus inscripciones." action="Ingresar" onAction={() => router.push('/auth')} /> : groupError ? <Notice title="No pudimos cargar tus inscripciones" action="Reintentar" onAction={() => void refreshGroups()} /> : <RegistrationList activities={registrations} isLoading={groupLoading} />
           ) : (
@@ -165,11 +177,11 @@ export default function MyActivitiesScreen() {
             />
           )}
 
-          {section === 'gps' ? <View style={{ gap: 12 }}><Text style={ui.muted}>{isSignedIn ? 'Los recorridos pendientes permanecen en este teléfono hasta que los respaldes.' : 'Tus recorridos quedan en este teléfono. Puedes compartirlos sin pertenecer a un grupo.'}</Text><Button secondary busy={syncing} onPress={() => {
+          {section === 'gps' ? <View style={{ gap: 12 }}><Text style={ui.muted}>Los recorridos pendientes permanecen en este teléfono hasta que los respaldes.</Text><Button secondary busy={syncing} onPress={() => {
             if (!isSignedIn) { router.push('/auth'); return; }
             setSyncing(true);
             void sync().then((error) => setSyncMessage(error ?? 'Tus recorridos están respaldados en tu cuenta.')).finally(() => setSyncing(false));
-          }}>{isSignedIn ? 'Respaldar rutas de este teléfono' : 'Ingresar para respaldar mis rutas'}</Button>{syncMessage ? <Text accessibilityLiveRegion="polite" style={ui.muted}>{syncMessage}</Text> : null}</View> : null}
+          }}>Respaldar mis rutas</Button>{syncMessage ? <Text accessibilityLiveRegion="polite" style={ui.muted}>{syncMessage}</Text> : null}</View> : null}
           <Text style={styles.copyright}>© 2026 Manuel Salinas · Todos los derechos reservados</Text>
         </ScrollView>
       </SafeAreaView>

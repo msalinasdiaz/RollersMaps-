@@ -2,7 +2,13 @@
 
 20 de septiembre de 2026 · Trabajo autorizado por Manuel Salinas
 
-## Estado de la entrega
+## Actualización del 21 de septiembre de 2026
+
+El producto requiere ahora cuenta para mapa, GPS, historial y grupos. El modo
+invitado descrito abajo corresponde a la validación histórica del 20 de septiembre.
+Los cambios, pruebas y límites de esta revisión están en [VALIDACION-REGISTRO.md](VALIDACION-REGISTRO.md).
+
+## Estado de la entrega anterior
 
 La implementación móvil y la migración están preparadas y probadas localmente.
 El panel administrativo actualizado está publicado, conservando su acceso privado:

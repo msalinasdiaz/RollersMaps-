@@ -25,22 +25,53 @@ vi.mock('expo-sqlite',async()=>{
 let store:typeof import('../src/lib/tracking-store');
 const baseTime=1800000000000;
 function point(offset=0,seconds=0,accuracy=5):LocationObject{return {timestamp:baseTime+seconds*1000,coords:{latitude:-33+offset,longitude:-70,accuracy,altitude:null,altitudeAccuracy:null,heading:null,speed:2},mocked:false};}
-function start(owner='guest'){store.startLocalTrackingSession({userId:owner,activityType:'free_route',groupActivityId:null,title:'Salida libre',initialLocation:point()});}
+function start(owner='account-a'){store.startLocalTrackingSession({userId:owner,activityType:'free_route',groupActivityId:null,title:'Salida libre',initialLocation:point()});}
+function legacyGuest() { start(); holder.db!.exec("UPDATE tracking_session SET user_id='guest'"); }
 beforeEach(async()=>{vi.resetModules();store=await import('../src/lib/tracking-store');});
 afterEach(()=>{holder.db?.close();holder.db=null;});
 describe('GPS y persistencia sobre SQLite real',()=>{
+  it('exige una cuenta para iniciar rutas nuevas sin borrar registros previos',()=>{
+    expect(()=>start('guest')).toThrow(/Inicia sesión/);
+    expect(()=>start('')).toThrow(/Inicia sesión/);
+    start('account-a'); const original=store.getTrackingSnapshot()!;
+    expect(()=>start('guest')).toThrow(/Inicia sesión/);
+    expect(store.getTrackingSnapshot()!.recordId).toBe(original.recordId);
+  });
+  it('no mezcla rutas antiguas con la cuenta hasta recuperarlas expresamente y conserva sus datos',async()=>{
+    legacyGuest(); await store.appendLocationBatch([point(.0001,2)]); store.markTrackingPendingSave();
+    const snapshot=store.getTrackingSnapshot()!; store.archiveTrackingSession(snapshot);
+    expect(store.getLocalActivities('account-a')).toEqual([]);
+    expect(store.getLocalActivities('account-b')).toEqual([]);
+    expect(store.getLegacyActivityCount()).toBe(1);
+    expect(store.recoverGuestActivities('account-a')).toBe(1);
+    const recovered=store.getLocalActivities('account-a')[0];
+    expect(recovered.snapshot).toEqual({...snapshot,userId:'account-a'});
+    expect(recovered.ownerId).toBe('account-a');
+    expect(store.getLocalActivities('account-b')).toEqual([]);
+    expect(store.getLegacyActivityCount()).toBe(0);
+    expect(store.recoverGuestActivities('account-b')).toBe(0);
+  });
+  it('recupera rutas antiguas sin red y no permite asignarlas a un invitado',()=>{
+    legacyGuest();store.markTrackingPendingSave();store.archiveTrackingSession(store.getTrackingSnapshot()!);
+    expect(()=>store.recoverGuestActivities('guest')).toThrow(/Inicia sesión/);
+    expect(()=>store.recoverGuestActivities('')).toThrow(/Inicia sesión/);
+    expect(store.getLegacyActivityCount()).toBe(1);
+    expect(store.recoverGuestActivities('account-a')).toBe(1);
+    expect(store.getLocalActivities('account-a')[0].cloudId).toBeNull();
+    expect(store.recoverGuestActivities('account-a')).toBe(0);
+  });
   it('acepta movimiento plausible y descarta ruido, saltos, baja precisión y duplicados',async()=>{
     start();await store.appendLocationBatch([point(.0001,2),point(.00011,3),point(.02,4),point(.0002,4,100),point(.0002,6),point(.0002,6)]);
-    const s=store.getTrackingSnapshot('guest')!;
+    const s=store.getTrackingSnapshot('account-a')!;
     expect(s.route).toHaveLength(3);expect(s.distanceKm).toBeCloseTo(.022239,4);expect(s.rejectedPoints).toBe(3);
   });
   it('ordena lotes y serializa escrituras sin duplicar distancia',async()=>{
     start();await Promise.all([store.appendLocationBatch([point(.0002,4),point(.0001,2)]),store.appendLocationBatch([point(.0002,4),point(.0003,6)])]);
-    expect(store.getTrackingSnapshot('guest')!.route).toHaveLength(4);
-    expect(store.getTrackingSnapshot('guest')!.distanceKm).toBeCloseTo(.033358,4);
+    expect(store.getTrackingSnapshot('account-a')!.route).toHaveLength(4);
+    expect(store.getTrackingSnapshot('account-a')!.distanceKm).toBeCloseTo(.033358,4);
   });
   it('rechaza una señal inicial inválida y coordenadas imposibles',()=>{
-    expect(()=>store.startLocalTrackingSession({userId:'guest',activityType:'free_route',groupActivityId:null,title:'Ruta',initialLocation:point(0,0,200)})).toThrow(/precisa/);
+    expect(()=>store.startLocalTrackingSession({userId:'account-a',activityType:'free_route',groupActivityId:null,title:'Ruta',initialLocation:point(0,0,200)})).toThrow(/precisa/);
     expect(store.isUsablePoint({...store.toStoredCoordinate(point()),latitude:100})).toBe(false);
     expect(store.isUsablePoint({...store.toStoredCoordinate(point()),timestamp:NaN})).toBe(false);
   });
@@ -48,16 +79,16 @@ describe('GPS y persistencia sobre SQLite real',()=>{
     start();const before=store.getTrackingSnapshot()!;expect(()=>start()).toThrow(/pendiente/);
     expect(store.getTrackingSnapshot()!.recordId).toBe(before.recordId);
   });
-  it('guarda varios recorridos de invitado y recupera tras reiniciar el módulo',async()=>{
-    start();await store.appendLocationBatch([point(.0001,2)]);await store.flushLocationQueue();store.markTrackingPendingSave();store.archiveTrackingSession(store.getTrackingSnapshot('guest')!);
-    start();store.markTrackingPendingSave();store.archiveTrackingSession(store.getTrackingSnapshot('guest')!);
+  it('conserva recorridos antiguos de invitado tras reiniciar el módulo',async()=>{
+    legacyGuest();await store.appendLocationBatch([point(.0001,2)]);await store.flushLocationQueue();store.markTrackingPendingSave();store.archiveTrackingSession(store.getTrackingSnapshot('account-a')!);
+    legacyGuest();store.markTrackingPendingSave();store.archiveTrackingSession(store.getTrackingSnapshot('account-a')!);
     expect(store.getLocalActivities('guest')).toHaveLength(2);expect(store.getTrackingSnapshot()).toBeNull();
     vi.resetModules();store=await import('../src/lib/tracking-store');expect(store.getLocalActivities('guest')).toHaveLength(2);
   });
   it('aisla cuentas y conserva propiedad al reclamar un recorrido de invitado',()=>{
     start('account-a');store.markTrackingPendingSave();store.archiveTrackingSession(store.getTrackingSnapshot('account-a')!);
     expect(store.getLocalActivities('account-b')).toHaveLength(0);
-    start();store.markTrackingPendingSave();const s=store.getTrackingSnapshot('guest')!;store.archiveTrackingSession(s);
+    legacyGuest();store.markTrackingPendingSave();const s=store.getTrackingSnapshot('account-a')!;store.archiveTrackingSession(s);
     store.claimLocalActivity(s.recordId,'account-b');store.claimLocalActivity(s.recordId,'account-a');
     expect(store.getLocalActivities('account-b')[0].ownerId).toBe('account-b');
     expect(store.getLocalActivities('guest')).toHaveLength(0);

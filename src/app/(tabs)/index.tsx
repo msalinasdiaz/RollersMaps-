@@ -7,7 +7,7 @@ import { useCommunity } from '@/contexts/community';
 import { GpsTargetIcon } from '@/components/gps-target-icon';
 
 export default function HomeScreen() {
-  const { profile, isSignedIn, isJoined }=useDemoSession();
+  const { profile, isJoined }=useDemoSession();
   const { groups,activities,calendarError }=useCommunity();
   const [now,setNow]=useState(()=>Date.now());
   useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),30000);return()=>clearInterval(timer);},[]);
@@ -18,6 +18,5 @@ export default function HomeScreen() {
     <Card><View style={{gap:15,paddingVertical:12}}><GpsTargetIcon color="#FF9A45" size={44}/><Text style={[ui.title,{fontSize:30}]}>Sal a patinar</Text><Text style={ui.muted}>Registra tu recorrido con GPS y guárdalo, incluso sin conexión.</Text><Button onPress={()=>router.push('/track')}>Iniciar recorrido</Button><Button secondary onPress={()=>router.navigate('/explore')}>Explorar rutas</Button></View></Card>
     {next?<Card><Text style={ui.accent}>{next.groupName}</Text><Text style={ui.heading}>{next.title}</Text><Text style={ui.muted}>{next.date.toLocaleDateString('es-CL',{weekday:'long',day:'numeric',month:'short'})} · {next.time}</Text><Button secondary onPress={()=>router.navigate('/calendar')}>Ver mi inscripción</Button></Card>:calendarError&&memberships.length?<Notice title="No pudimos actualizar tus actividades" text="Puedes seguir usando el GPS y tus recorridos."/>:null}
     <Card><Text style={ui.heading}>{memberships.length?'Tus comunidades':'También se patina en grupo'}</Text><Text style={ui.muted}>{memberships.length?memberships.map(g=>g.name).join(' · '):'Descubre grupos de patinaje y solicita tu ingreso para acceder a sus calendarios.'}</Text><Button secondary onPress={()=>router.navigate('/groups')}>{memberships.length?'Ver mis grupos':'Descubrir grupos'}</Button></Card>
-    {!isSignedIn?<Text style={ui.muted}>Puedes patinar sin cuenta. Ingresa cuando quieras respaldar tus rutas o unirte a un grupo.</Text>:null}
   </Screen>;
 }

@@ -39,9 +39,9 @@ export default function NotFoundScreen() {
           </Text>
           {isLoading ? <Text style={styles.status}>Validando enlace…</Text> : null}
           <Pressable accessibilityRole="button" onPress={() => router.replace('/')} style={styles.button}>
-            <Text style={styles.buttonText}>Volver a Inicio</Text>
+            <Text style={styles.buttonText}>{isSignedIn ? 'Volver a Inicio' : 'Ir a la bienvenida'}</Text>
           </Pressable>
-          <Text style={styles.footer}>Patinamos juntos con Santiago Rollers</Text>
+          <Text style={styles.footer}>RollersMaps · Tu comunidad de patinaje</Text>
         </View>
       </SafeAreaView>
     </View>

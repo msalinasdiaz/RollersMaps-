@@ -1,7 +1,7 @@
 # RollersMaps
 
 Aplicación para patinar libre y participar en comunidades. Mapa, GPS, guardado
-local y compartir recorridos disponibles sin pertenecer a un grupo. Los
+local y compartir recorridos disponibles con una cuenta, sin necesidad de pertenecer a un grupo. Los
 calendarios y las reservas requieren membresía activa en su grupo.
 
 **Versión en preparación:** 1.4.0 · **Base estable:** 1.3.3
@@ -46,6 +46,8 @@ La firma local es de prueba; no es una firma de distribución de tienda.
 - [Informe de validación y pendientes](docs/VALIDACION-1.4.0.md).
 - [Revisión de solo lectura previa](supabase/preflight-v140.sql).
 - [Migración de grupos](supabase/migrations/20260920_groups_v140.sql).
+- [Registro obligatorio: aplicar después de grupos](supabase/migrations/20260921_account_required.sql).
+- [Validación del registro](docs/VALIDACION-REGISTRO.md).
 - [Manual histórico 1.3.0](docs/MANUAL-TECNICO.md).
 
 Antes de aplicar la migración real, respaldar esquema y datos y comparar el

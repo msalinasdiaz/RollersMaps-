@@ -1,12 +1,13 @@
 # RollersMaps 1.4.0 — Patinar libre y comunidades
 
-## Acuerdo de producto
+## Acuerdo de producto — actualizado el 21 de septiembre de 2026
 
 RollersMaps sirve a cualquier persona que patine. Una cuenta puede pertenecer a varios grupos; la pertenencia a uno no abre los calendarios de los demás. La membresía es independiente de cualquier pago.
 
 - Mapa, GPS, historial local y compartir recorridos propios disponibles sin grupo.
-- Invitado: registro y guardado en el teléfono. Cuenta: respaldo privado en la nube.
-- Directorio público de grupos; calendarios y reservas accesibles solo a miembros activos.
+- Cuenta obligatoria para usar mapa, GPS, historial, distancias, compartir y grupos. La bienvenida permite crear cuenta o iniciar sesión.
+- No hay modo invitado nuevo. Los recorridos antiguos sin cuenta se conservan y se recuperan únicamente al confirmar que son propios, sin necesitar red.
+- Directorio de grupos para usuarios registrados; calendarios y reservas accesibles solo a miembros activos de cada grupo.
 - Santiago Rollers: ingreso por aprobación. Cada grupo puede elegir ingreso abierto o por aprobación.
 - Propietario y administradores gestionan solo su grupo. Miembro, pendiente, bloqueado y salida son estados explícitos.
 - Los usuarios existentes no se convierten automáticamente en miembros. Los administradores existentes gestionan Santiago Rollers; se conservan las inscripciones y los recorridos.
@@ -15,11 +16,12 @@ RollersMaps sirve a cualquier persona que patine. Una cuenta puede pertenecer a 
 
 ```mermaid
 flowchart TD
-  A[RollersMaps] --> B[Patinar libre]
+  W[Bienvenida] --> A[Crear cuenta o iniciar sesión]
+  A --> B[Patinar libre]
   B --> C[Mapa y GPS]
   C --> D[Guardar en el teléfono]
   D --> E[Compartir imagen]
-  D --> F[Cuenta: respaldo privado]
+  D --> F[Respaldo privado en la cuenta]
   A --> G[Descubrir grupos]
   G --> H[Unirse o solicitar ingreso]
   H --> I[Membresía activa del grupo]
@@ -50,7 +52,10 @@ Cuatro pestañas: Inicio, Calendario, Grupos y Mis rutas. Inicio ofrece Patinar 
 
 ## Criterios de aceptación
 
-- Un invitado guarda más de un recorrido, reinicia y conserva su historial.
+- Sin sesión no se accede por navegación ni enlaces directos al GPS, historial, grupos o calendarios.
+- Con cuenta y sin grupos se guardan varios recorridos, se consulta su distancia y se conserva el historial al reiniciar.
+- Las rutas antiguas de invitado no se mezclan automáticamente con ninguna cuenta; recuperarlas conserva trazado, métricas e identificadores.
+- Cerrar sesión vuelve a la bienvenida. La pertenencia a grupos no es requisito para las funciones personales.
 - Un usuario de A no lee ni modifica calendarios, reservas o miembros de B.
 - Una solicitud pendiente no habilita el calendario; aprobarla sí, retirarla revoca el acceso.
 - Dos reservas concurrentes para el último cupo producen solo una confirmación.
@@ -65,7 +70,9 @@ Cuatro pestañas: Inicio, Calendario, Grupos y Mis rutas. Inicio ofrece Patinar 
 - https://support.strava.com/en-us/articles/15401898-how-do-i-create-and-manage-group-events-for-my-club
 - https://docs.expo.dev/versions/v57.0.0/
 
-## Estado de continuidad — 20 de septiembre de 2026
+## Estado histórico de continuidad — 20 de septiembre de 2026
+
+El acuerdo de acceso de esta sección fue sustituido el 21 de septiembre por registro obligatorio. Consultar VALIDACION-REGISTRO.md para el cambio posterior.
 
 Implementación de grupos, permisos, pantallas y guardado local terminada en la
 rama de trabajo. Hay 25 pruebas automáticas aprobadas, comprobaciones de tipos

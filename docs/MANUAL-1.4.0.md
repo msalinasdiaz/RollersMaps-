@@ -1,6 +1,6 @@
 # RollersMaps 1.4.0 — Uso y transición
 
-20 de septiembre de 2026 · Manuel Salinas
+Actualizado el 21 de septiembre de 2026 · Manuel Salinas
 
 ## Qué cambia
 
@@ -8,13 +8,17 @@ RollersMaps pasa a servir a cualquier persona que patine. Cada grupo tiene su
 propio calendario, miembros y administración. Tener una cuenta no inscribe a la
 persona en Santiago Rollers ni en otro grupo. La pertenencia no exige un pago.
 
+Para usar la app se requiere registrarse o iniciar sesión. La bienvenida explica:
+«Tus rutas, tus kilómetros y tu comunidad». Crear cuenta habilita los recorridos
+personales; unirse a un grupo habilita exclusivamente el calendario de ese grupo.
+
 | Función | Sin cuenta | Cuenta sin grupos | Miembro activo | Administrador del grupo |
 |---|---|---|---|---|
-| Mapa y GPS personal | Sí | Sí | Sí | Sí |
-| Guardar varios recorridos en el teléfono | Sí | Sí | Sí | Sí |
-| Compartir una imagen del recorrido | Sí | Sí | Sí | Sí |
+| Mapa y GPS personal | — | Sí | Sí | Sí |
+| Guardar varios recorridos en el teléfono | — | Sí | Sí | Sí |
+| Compartir una imagen del recorrido | — | Sí | Sí | Sí |
 | Respaldar recorridos en la cuenta | — | Sí | Sí | Sí |
-| Descubrir grupos | Sí | Sí | Sí | Sí |
+| Descubrir grupos | — | Sí | Sí | Sí |
 | Solicitar ingreso | Iniciar sesión | Sí | Sí, a otros grupos | Sí |
 | Calendario y reservas de un grupo | — | — | Solo sus grupos | Solo sus grupos |
 | Gestionar actividades y miembros | — | — | — | Solo su grupo |
@@ -45,8 +49,11 @@ El recorrido se guarda primero en SQLite, dentro del teléfono. Al finalizar se
 conserva en el historial y queda libre la sesión para una nueva salida. Solo puede
 existir un recorrido activo o pendiente de guardar; empezar otro no lo sobrescribe.
 
-Los recorridos de invitado se respaldan en una cuenta únicamente cuando la
-persona elige hacerlo. El respaldo utiliza un identificador estable: reintentar
+Las rutas antiguas guardadas sin cuenta se conservan. En «Mis rutas» aparece
+«Recuperar mis recorridos» cuando existen. La confirmación «Son mis rutas» los
+vincula a la cuenta actual en este teléfono; no los publica ni requiere conexión.
+Después se puede pulsar «Respaldar mis rutas» para enviarlos a la cuenta en la nube.
+Una cuenta distinta no ve esos recorridos una vez recuperados. El respaldo utiliza un identificador estable: reintentar
 no debería crear una segunda copia. La cuenta se comprueba antes de cada envío.
 Un fallo de conexión conserva la copia local.
 
@@ -73,8 +80,9 @@ anterior para los administradores de Santiago Rollers.
 
 ```mermaid
 flowchart TD
-    U[Persona con o sin cuenta] --> P[Mapa, GPS e historial personal]
-    U --> D[Directorio público de grupos]
+    W[Bienvenida] --> U[Crear cuenta o iniciar sesión]
+    U --> P[Mapa, GPS e historial personal]
+    U --> D[Descubrir grupos]
     D --> S[Unirse o solicitar ingreso]
     S --> E{Estado en ese grupo}
     E -->|Pendiente| X[Calendario cerrado]
@@ -92,6 +100,7 @@ pestaña no es la protección: las reglas se aplican en el servidor.
 
 ## Eficiencia
 
+- La bienvenida no consulta grupos ni calendarios antes de iniciar sesión.
 - El calendario y los grupos comparten una carga de datos. Se actualizan al
   regresar a la aplicación y periódicamente mientras está visible.
 - Las respuestas de una cuenta o un grupo anterior no reemplazan la pantalla actual.
@@ -115,7 +124,8 @@ sustituye una salida con pantalla bloqueada en teléfonos físicos.
 
 Antes de activar Supabase: obtener conexión administrativa, ejecutar la revisión
 de solo lectura, respaldar esquema y datos, revisar las funciones existentes y
-aplicar la migración completa. La credencial recibida no se incorpora al código
+aplicar primero la migración de grupos y después `20260921_account_required.sql`.
+Esta segunda migración exige cuenta también para consultar el directorio y el catálogo. La credencial recibida no se incorpora al código
 ni a este documento. La dirección directa de la base no respondió desde el equipo;
 están pendientes los datos de Session pooler.
 

@@ -35,20 +35,30 @@ beforeAll(async()=>{
     insert into activities(id,title,meeting_point) values('20000000-0000-4000-8000-000000000001','Salida SR','Punto privado');
   `);
   await db.exec(readFileSync('supabase/migrations/20260920_groups_v140.sql','utf8'));
+    await db.exec(readFileSync('supabase/migrations/20260921_account_required.sql','utf8'));
 });
 afterAll(async()=>{await db.close()});
 describe('Permisos reales de PostgreSQL y membresías',()=>{
   it('migración repetible conserva actividades y no afilia todas las cuentas',async()=>{
     await db.exec(readFileSync('supabase/migrations/20260920_groups_v140.sql','utf8'));
+    await db.exec(readFileSync('supabase/migrations/20260921_account_required.sql','utf8'));
     const result=await db.query('select user_id from group_memberships');
     expect(result.rows).toEqual([{user_id:owner}]);
     expect((await db.query('select count(*)::int as n from activities')).rows).toEqual([{n:1}]);
   });
-  it('directorio público sin calendarios',async()=>{
-    const result=await as(null,'select get_groups() as groups');
+  it('el directorio requiere cuenta sin exigir membresía y no abre calendarios',async()=>{
+    await expect(as(null,'select get_groups()')).rejects.toThrow(/permission denied/);
+    await expect(as(null,'select * from groups')).rejects.toThrow(/permission denied/);
+    await expect(as(null,'select * from routes')).rejects.toThrow(/permission denied/);
+    const result=await as(member,'select get_groups() as groups');
     expect((result.rows[0] as {groups:{name:string}[]}).groups[0].name).toBe('Santiago Rollers');
     await expect(as(null,'select * from activities')).rejects.toThrow(/permission denied/);
     await expect(as(null,'select get_published_activities()')).rejects.toThrow(/permission denied/);
+  });
+  it('el catálogo publicado requiere una cuenta y admite usuarios sin grupos',async()=>{
+    await db.exec("insert into routes(status) values('published'),('draft')");
+    expect((await as(member,'select * from routes')).rows).toHaveLength(1);
+    await expect(as(null,'select * from routes')).rejects.toThrow(/permission denied/);
   });
   it('un extraño no ve el calendario incluso por la función antigua',async()=>{
     expect((await as(member,'select * from activities')).rows).toHaveLength(0);

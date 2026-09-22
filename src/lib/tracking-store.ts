@@ -130,6 +130,7 @@ export function startLocalTrackingSession({
   title: string;
   userId: string;
 }) {
+  if (!userId.trim() || userId === GUEST_OWNER) throw new Error('Inicia sesión para comenzar un recorrido.');
   const db = getDatabase();
   const point = toStoredCoordinate(initialLocation);
   if (!isUsablePoint(point)) throw new Error('Espera una señal GPS más precisa antes de comenzar.');
@@ -334,9 +335,9 @@ export function archiveTrackingSession(snapshot: TrackingSnapshot) {
   });
   routeCache = null;
 }
-export function getLocalActivities(ownerId: string): LocalActivity[] {
+export function getLocalActivities(ownerId: string, includeGuests = false): LocalActivity[] {
   return getDatabase().getAllSync<{ snapshot: string; cloud_id: string | null; owner_id: string }>(
-    'SELECT snapshot,cloud_id,owner_id FROM local_activities WHERE owner_id=? OR owner_id=? ORDER BY saved_at DESC', ownerId, GUEST_OWNER,
+    'SELECT snapshot,cloud_id,owner_id FROM local_activities WHERE owner_id=? OR owner_id=? ORDER BY saved_at DESC', ownerId, includeGuests ? GUEST_OWNER : ownerId,
   ).map((row) => ({ snapshot: JSON.parse(row.snapshot), cloudId: row.cloud_id, ownerId: row.owner_id }));
 }
 export function renameLocalActivity(recordId: string, ownerId: string, title: string) {
@@ -345,7 +346,27 @@ export function renameLocalActivity(recordId: string, ownerId: string, title: st
   getDatabase().runSync('UPDATE local_activities SET snapshot=? WHERE record_id=?', JSON.stringify({ ...record.snapshot, title }), recordId);
 }
 export function claimLocalActivity(recordId: string, ownerId: string) {
-  getDatabase().runSync('UPDATE local_activities SET owner_id=? WHERE record_id=? AND owner_id=?', ownerId, recordId, GUEST_OWNER);
+  if (!ownerId.trim() || ownerId === GUEST_OWNER) throw new Error('Inicia sesión para recuperar tus recorridos.');
+  const record = getLocalActivities(GUEST_OWNER).find((item) => item.snapshot.recordId === recordId);
+  if (!record) return;
+  getDatabase().runSync('UPDATE local_activities SET owner_id=?, snapshot=? WHERE record_id=? AND owner_id=?',
+    ownerId, JSON.stringify({ ...record.snapshot, userId: ownerId }), recordId, GUEST_OWNER);
+}
+export function getLegacyActivityCount() {
+  return getDatabase().getFirstSync<{ count: number }>('SELECT COUNT(*) AS count FROM local_activities WHERE owner_id=?', GUEST_OWNER)?.count ?? 0;
+}
+export function recoverGuestActivities(ownerId: string) {
+  if (!ownerId.trim() || ownerId === GUEST_OWNER) throw new Error('Inicia sesión para recuperar tus recorridos.');
+  const db = getDatabase();
+  let recovered = 0;
+  db.withTransactionSync(() => {
+    for (const record of getLocalActivities(GUEST_OWNER)) {
+      db.runSync('UPDATE local_activities SET owner_id=?, snapshot=? WHERE record_id=? AND owner_id=?',
+        ownerId, JSON.stringify({ ...record.snapshot, userId: ownerId }), record.snapshot.recordId, GUEST_OWNER);
+      recovered += 1;
+    }
+  });
+  return recovered;
 }
 export function markLocalActivitySynced(recordId: string, ownerId: string, cloudId: string) {
   getDatabase().runSync('UPDATE local_activities SET cloud_id=? WHERE record_id=? AND owner_id=?', cloudId, recordId, ownerId);

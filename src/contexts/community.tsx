@@ -21,6 +21,10 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState({ ...emptyData, identity: '', isLoading: true });
   const refresh = useCallback(async () => {
     const request = ++sequence.current;
+    if (identity === 'guest') {
+      setState({ ...emptyData, identity, isLoading: false });
+      return;
+    }
     setState((previous) => ({ ...(previous.identity === identity ? previous : emptyData), identity, isLoading: true }));
     try {
       const [groups, calendar] = await Promise.all([
@@ -39,7 +43,7 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
     }
   }, [identity]);
   useEffect(() => {
-    if (authLoading) return;
+    if (authLoading || identity === 'guest') return;
     const timeout = setTimeout(() => { void refresh(); }, 0);
     const listener = AppState.addEventListener('change', (state) => {
       if (state === 'active') void refresh();
@@ -49,7 +53,7 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
     const requestSequence = sequence;
     return () => { ++requestSequence.current; clearTimeout(timeout); clearInterval(interval); listener.remove(); };
   }, [authLoading, identity, refresh, registrationVersion]);
-  const visible = state.identity === identity ? state : { ...emptyData, isLoading: true };
+  const visible = identity === 'guest' ? { ...emptyData, isLoading: false } : state.identity === identity ? state : { ...emptyData, isLoading: true };
   return <CommunityContext.Provider value={{ ...visible, refresh }}>{children}</CommunityContext.Provider>;
 }
 export function useCommunity() {
