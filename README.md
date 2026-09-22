@@ -28,8 +28,9 @@ GitHub Actions ejecuta la misma rutina en cada cambio de `main` y `feature/**`,
 y en solicitudes de integración. Usa Node.js 24, dependencias del archivo de
 bloqueo y permisos de lectura. No requiere secretos de Supabase ni despliega.
 
-La prueba de capacidad actual es secuencial; la concurrencia de dos conexiones
-remotas y el GPS en teléfonos físicos siguen siendo controles de publicación.
+Además se verificó el último cupo con dos conexiones simultáneas sobre una copia
+restaurada en PostgreSQL 17.11. El GPS físico, iOS y la aceptación con cuentas reales
+siguen siendo controles previos a la publicación.
 
 ## Android de prueba
 
@@ -43,16 +44,18 @@ La firma local es de prueba; no es una firma de distribución de tienda.
 
 - [Modelo acordado](docs/PLAN-1.4.0.md).
 - [Manual actualizado](docs/MANUAL-1.4.0.md).
-- [Informe de validación y pendientes](docs/VALIDACION-1.4.0.md).
+- [Informe histórico del 20 de septiembre](docs/VALIDACION-1.4.0.md).
 - [Revisión de solo lectura previa](supabase/preflight-v140.sql).
 - [Migración de grupos](supabase/migrations/20260920_groups_v140.sql).
 - [Registro obligatorio: aplicar después de grupos](supabase/migrations/20260921_account_required.sql).
 - [Validación del registro](docs/VALIDACION-REGISTRO.md).
 - [Manual histórico 1.3.0](docs/MANUAL-TECNICO.md).
 
-Antes de aplicar la migración real, respaldar esquema y datos y comparar el
-esquema existente con la revisión previa. No se debe suponer que una prueba local
-equivale a una validación de la base remota. Git respalda código, no datos de Supabase.
+Las dos migraciones se aplicaron en Supabase el 21 de septiembre de 2026, después
+de respaldar la base, restaurar los esquemas de la app y autenticación localmente
+y ensayar los cambios. Se verificaron conservación de datos y permisos remotos.
+El informe vigente es [VALIDACION-REGISTRO.md](docs/VALIDACION-REGISTRO.md).
+Ante nuevas migraciones, repetir revisión y respaldo. Git no respalda datos de Supabase.
 
 La etiqueta `backup/v1.3.3-before-groups-20260920` conserva la versión estable.
 El trabajo de grupos se mantiene en `feature/1.4.0-groups`.

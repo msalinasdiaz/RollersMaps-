@@ -70,6 +70,14 @@ Cuatro pestañas: Inicio, Calendario, Grupos y Mis rutas. Inicio ofrece Patinar 
 - https://support.strava.com/en-us/articles/15401898-how-do-i-create-and-manage-group-events-for-my-club
 - https://docs.expo.dev/versions/v57.0.0/
 
+## Estado vigente — 21 de septiembre de 2026
+
+Registro obligatorio implementado, APK Android revisión 22 compilado, 33 pruebas
+aprobadas y cinco enlaces privados comprobados sin sesión. Supabase activado
+con respaldo previo restaurado y validaciones remotas aprobadas, sin pérdida de
+registros. La concurrencia del último cupo se comprobó con dos conexiones a una
+copia local de la base real. Evidencia y pendientes en VALIDACION-REGISTRO.md.
+
 ## Estado histórico de continuidad — 20 de septiembre de 2026
 
 El acuerdo de acceso de esta sección fue sustituido el 21 de septiembre por registro obligatorio. Consultar VALIDACION-REGISTRO.md para el cambio posterior.

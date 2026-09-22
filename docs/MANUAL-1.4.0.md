@@ -118,20 +118,24 @@ Las pruebas automáticas cubren PostgreSQL local con políticas reales, SQLite,
 filtrado GPS, solicitudes, aislamiento entre grupos, reservas y respaldo por
 cuenta. Se ejecutan juntas con `npm run verify`.
 
-La prueba de último cupo comprueba la secuencia de reservas y su repetición. No
-equivale todavía a una prueba de dos conexiones reales simultáneas. Tampoco
-sustituye una salida con pantalla bloqueada en teléfonos físicos.
+El último cupo se probó con dos conexiones simultáneas en PostgreSQL 17.11 local
+restaurado: solo una reserva se confirmó. No sustituye una salida con pantalla
+bloqueada en un teléfono físico. También pasaron 33 pruebas automáticas y cinco
+enlaces privados Android que regresan a la bienvenida sin sesión.
 
-Antes de activar Supabase: obtener conexión administrativa, ejecutar la revisión
-de solo lectura, respaldar esquema y datos, revisar las funciones existentes y
-aplicar primero la migración de grupos y después `20260921_account_required.sql`.
-Esta segunda migración exige cuenta también para consultar el directorio y el catálogo. La credencial recibida no se incorpora al código
-ni a este documento. La dirección directa de la base no respondió desde el equipo;
-están pendientes los datos de Session pooler.
+Supabase tiene activadas ambas migraciones desde el 21 de septiembre de 2026.
+Antes se revisó el esquema real, se respaldó toda la base y se restauraron los
+esquemas de la app y autenticación en una base local de ensayo. La aplicación
+se hizo en una sola transacción y se verificaron conservación y permisos por
+SQL y por la API. La contraseña no está en el código ni en la documentación.
+Las cuentas existentes deben solicitar ingreso a Santiago Rollers, salvo el
+administrador que conserva la propiedad. Las inscripciones anteriores se mantienen.
 
 Git respalda el código; el respaldo de la base debe hacerse por separado. La
 versión estable 1.3.3 tiene una etiqueta y un archivo de respaldo independientes.
-La base remota todavía no ha sido modificada por este trabajo.
+La base tiene un respaldo local independiente. Los permisos nuevos se aplican
+también a versiones antiguas. Consultar VALIDACION-REGISTRO.md para evidencia
+y pendientes de aceptación con cuentas reales, GPS físico e iOS.
 
 ## Referencias de producto
 

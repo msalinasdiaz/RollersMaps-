@@ -26,6 +26,11 @@ export default function AuthScreen() {
       return;
     }
 
+    if (isCreatingAccount && (Array.from(displayName.trim()).length < 2 || Array.from(displayName.trim()).length > 60)) {
+      setNotice('Usa un nombre de entre 2 y 60 caracteres.');
+      return;
+    }
+
     if (isCreatingAccount && password.length < 8) {
       setNotice('Usa una contraseña de al menos 8 caracteres.');
       return;

@@ -8,6 +8,10 @@ El producto requiere ahora cuenta para mapa, GPS, historial y grupos. El modo
 invitado descrito abajo corresponde a la validación histórica del 20 de septiembre.
 Los cambios, pruebas y límites de esta revisión están en [VALIDACION-REGISTRO.md](VALIDACION-REGISTRO.md).
 
+Supabase se activó el 21 de septiembre, con respaldo restaurado y validación
+remota. Los bloqueos de conexión y falta de respaldo descritos más abajo
+corresponden exclusivamente al estado histórico del 20 de septiembre.
+
 ## Estado de la entrega anterior
 
 La implementación móvil y la migración están preparadas y probadas localmente.
