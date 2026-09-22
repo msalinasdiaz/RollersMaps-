@@ -125,9 +125,11 @@ Pendientes antes de publicar en tiendas:
 - Salida GPS con pantalla bloqueada en teléfono físico y pruebas iOS.
 - Revisión de dependencias y firma de distribución.
 
-El código está guardado en Git local. Su subida al repositorio público requiere
-la autorización explícita solicitada. No se publicó este avance ni se enviaron
-respaldos de datos a GitHub.
+El usuario autorizó el 22 de septiembre subir el avance al repositorio público
+y separarlo por versiones. Esta entrega se identifica como `v1.4.0-beta.2`;
+el primer avance de grupos es `v1.4.0-beta.1`. El índice VERSIONES.md distingue
+también las versiones históricas y la variante iOS. Los respaldos de datos y
+credenciales permanecen fuera de GitHub.
 
 ## Referencias técnicas
 

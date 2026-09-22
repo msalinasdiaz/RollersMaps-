@@ -4,7 +4,10 @@ Aplicación para patinar libre y participar en comunidades. Mapa, GPS, guardado
 local y compartir recorridos disponibles con una cuenta, sin necesidad de pertenecer a un grupo. Los
 calendarios y las reservas requieren membresía activa en su grupo.
 
-**Versión en preparación:** 1.4.0 · **Base estable:** 1.3.3
+**Avance actual:** [v1.4.0-beta.2](VERSIONES.md) · **Base estable Android:** 1.3.3
+
+[Ver todas las versiones y sus diferencias](VERSIONES.md). Las etiquetas permiten
+consultar cada entrega completa; la variante iOS se identifica por separado.
 
 **Creador y titular:** Manuel Salinas · **Licencia:** propietaria, ver [LICENSE](LICENSE).
 
