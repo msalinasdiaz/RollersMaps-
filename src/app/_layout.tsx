@@ -50,6 +50,7 @@ function AppNavigator() {
       <Stack.Screen name="track" options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="group" />
       <Stack.Screen name="create-group" />
+      <Stack.Screen name="group-requests" />
       <Stack.Screen name="activity-editor" />
     </Stack.Protected>
     <Stack.Screen name="+not-found" />

@@ -38,7 +38,7 @@ function userFacingError(message: string) {
   const normalized = message.toLocaleLowerCase();
 
   if (normalized.includes('no quedan cupos')) {
-    return 'Esta actividad ya no tiene cupos disponibles.';
+    return 'Las inscripciones para esta actividad están cerradas.';
   }
 
   if (normalized.includes('invalid login credentials')) {

@@ -2,7 +2,11 @@
 
 Actualizado el 22 de septiembre de 2026.
 
-**Avance actual: [v1.4.0-beta.2](https://github.com/msalinasdiaz/RollersMaps-/tree/v1.4.0-beta.2) — registro obligatorio.**
+**Avance actual: 1.4.0, revisión 23 — calendario semanal, logos y aprobación central de grupos.**
+
+[Ver cambios y validación](docs/VALIDACION-REVISION-23.md). La última etiqueta publicada sigue siendo beta.2.
+
+**Última etiqueta publicada: [v1.4.0-beta.2](https://github.com/msalinasdiaz/RollersMaps-/tree/v1.4.0-beta.2) — registro obligatorio.**
 **Base estable Android: [v1.3.3](https://github.com/msalinasdiaz/RollersMaps-/tree/v1.3.3).**
 **Variante iOS existente: [v1.3.3-ios](https://github.com/msalinasdiaz/RollersMaps-/tree/v1.3.3-ios).**
 

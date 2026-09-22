@@ -1,6 +1,6 @@
 # RollersMaps 1.4.0 — Uso y transición
 
-Actualizado el 21 de septiembre de 2026 · Manuel Salinas
+Actualizado el 22 de septiembre de 2026 · Revisión 23 · Manuel Salinas
 
 ## Qué cambia
 
@@ -36,8 +36,11 @@ catálogo general y consultar la próxima actividad a la que se está inscrito.
 filtrar por grupo, reservar un cupo o cancelarlo. Los puntos de encuentro y los
 horarios privados no se muestran como adelantos a personas ajenas al grupo.
 
-**Grupos:** directorio, búsqueda, solicitudes y creación de grupos. El creador
-queda como propietario. Desde el detalle del grupo se habilita su administración.
+**Grupos:** directorio, búsqueda y solicitudes. Crear una comunidad requiere
+la aprobación del administrador general. La solicitud aparece en Mis grupos
+por 48 horas; sin aprobación se elimina. Una vez aprobada, el creador pasa a
+propietario y puede administrarla. Solo puede existir una solicitud pendiente
+por cuenta.
 
 **Mis rutas:** historial personal, nombre del recorrido, métricas y opción de
 compartir cualquier recorrido con trazado. Cada registro indica si está guardado
@@ -60,6 +63,22 @@ Un fallo de conexión conserva la copia local.
 Desinstalar la aplicación elimina sus datos locales. El respaldo en la cuenta
 es la opción para conservarlos fuera del dispositivo. Los mapas base requieren
 conectividad o mosaicos ya almacenados; no se promete un mapa completo sin internet.
+
+## Agenda, cupos y logos
+
+El calendario muestra semanas de lunes a domingo, fechas laterales, colores
+por tipo y navegación entre semanas. Los participantes ven su inscripción;
+las cantidades quedan reservadas a administradores del grupo.
+
+En Grupos → Ver grupo → Ajustes, el propietario o administrador puede elegir
+un logo de la galería, revisar la imagen y pulsar Guardar logo.
+
+## Aprobación general de comunidades
+
+El administrador general accede a Grupos → Solicitudes de nuevos grupos.
+Puede aprobar o rechazar. Los administradores de una comunidad no pueden
+aprobar comunidades nuevas. Las solicitudes no aprobadas desaparecen a las
+48 horas y su limpieza se ejecuta cada minuto. Los grupos aprobados se conservan.
 
 ## Administración
 

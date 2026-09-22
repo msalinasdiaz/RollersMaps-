@@ -49,7 +49,7 @@ describe('Acceso con cuenta, independiente de grupos', () => {
   });
   it('una cuenta sin membresías accede a funciones personales y a descubrir grupos', () => {
     Object.assign(session, { isSignedIn: true, user: { id: 'account-a' } });
-    expect(availableScreens()).toEqual(['(tabs)', 'track', 'group', 'create-group', 'activity-editor', '+not-found']);
+    expect(availableScreens()).toEqual(['(tabs)', 'track', 'group', 'create-group', 'group-requests', 'activity-editor', '+not-found']);
   });
   it('al cerrar sesión retira todas las pantallas privadas', () => {
     Object.assign(session, { isSignedIn: true, user: { id: 'account-a' } });

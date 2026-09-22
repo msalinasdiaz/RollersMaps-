@@ -18,9 +18,9 @@ export const ui = StyleSheet.create({
   input: { backgroundColor: '#10141B', borderWidth: 1, borderColor: '#3C4758', borderRadius: 11, minHeight: 48, color: '#F4F5F7', fontSize: 15, padding: 12 },
   separator: { height: 1, backgroundColor: '#303947' },
 });
-export function Screen({ title, subtitle, children, back, refresh, refreshing = false }: { title: string; subtitle?: string; children: ReactNode; back?: boolean; refresh?: () => void; refreshing?: boolean }) {
+export function Screen({ title, subtitle, children, back, refresh, refreshing = false, backgroundColor }: { backgroundColor?: string; title: string; subtitle?: string; children: ReactNode; back?: boolean; refresh?: () => void; refreshing?: boolean }) {
   const { isSignedIn, signOut } = useDemoSession();
-  return <View style={ui.screen}><StatusBar style="light" /><SafeAreaView style={{ flex: 1 }} edges={['top']}>
+  return <View style={[ui.screen, backgroundColor ? { backgroundColor } : null]}><StatusBar style="light" /><SafeAreaView style={{ flex: 1 }} edges={['top']}>
     <ScrollView contentContainerStyle={ui.content} keyboardShouldPersistTaps="handled" refreshControl={refresh ? <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor="#FF9A45" /> : undefined}>
       <View style={ui.header}><View style={ui.brand}><Image source={require('@/assets/images/rollersmaps-adaptive-foreground.png')} style={ui.logo} /><Text style={ui.heading}>RollersMaps</Text></View>
         <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => back ? router.back() : isSignedIn ? void signOut() : router.push('/auth')}><Text style={ui.accent}>{back ? 'Volver' : isSignedIn ? 'Salir' : 'Ingresar'}</Text></Pressable></View>

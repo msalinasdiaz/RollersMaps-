@@ -17,6 +17,12 @@ async function as(user:string|null,sql:string,params:unknown[]=[]) {
 }
 beforeAll(async()=>{
   await db.exec(`create role anon; create role authenticated; create schema auth;
+    create schema storage;
+    create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
+    create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text references storage.buckets,name text,metadata jsonb,unique(bucket_id,name));
+    alter table storage.objects enable row level security;
+    grant usage on schema storage to authenticated,anon;
+    grant select,insert,update,delete on storage.objects to authenticated;
     create table auth.users(id uuid primary key);
     create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
     grant usage on schema auth,public to anon,authenticated; grant execute on function auth.uid() to anon,authenticated;
@@ -36,12 +42,16 @@ beforeAll(async()=>{
   `);
   await db.exec(readFileSync('supabase/migrations/20260920_groups_v140.sql','utf8'));
     await db.exec(readFileSync('supabase/migrations/20260921_account_required.sql','utf8'));
+    await db.exec(readFileSync('supabase/migrations/20260922_calendar_privacy_logos.sql','utf8'));
+    await db.exec(readFileSync('supabase/migrations/20260922_group_approval.sql','utf8'));
 });
 afterAll(async()=>{await db.close()});
 describe('Permisos reales de PostgreSQL y membresías',()=>{
   it('migración repetible conserva actividades y no afilia todas las cuentas',async()=>{
     await db.exec(readFileSync('supabase/migrations/20260920_groups_v140.sql','utf8'));
     await db.exec(readFileSync('supabase/migrations/20260921_account_required.sql','utf8'));
+    await db.exec(readFileSync('supabase/migrations/20260922_calendar_privacy_logos.sql','utf8'));
+    await db.exec(readFileSync('supabase/migrations/20260922_group_approval.sql','utf8'));
     const result=await db.query('select user_id from group_memberships');
     expect(result.rows).toEqual([{user_id:owner}]);
     expect((await db.query('select count(*)::int as n from activities')).rows).toEqual([{n:1}]);
@@ -75,8 +85,10 @@ describe('Permisos reales de PostgreSQL y membresías',()=>{
     expect((await as(member,'select * from get_published_activities()')).rows).toHaveLength(1);
     const result=await as(stranger,"select create_group('Otro grupo','Patinaje independiente','Valparaíso','open') as id");
     other=(result.rows[0] as {id:string}).id;
+    await as(owner,"select review_group_creation($1,'approve')",[other]);
     await as(stranger,"insert into activities(title,meeting_point,group_id) values('Otra salida','Lugar B',$1)",[other]);
-    expect((await as(member,'select * from activities')).rows).toHaveLength(1);
+    expect((await as(member,'select * from activities')).rows).toHaveLength(0);
+    expect((await as(member,'select * from get_published_activities()')).rows).toHaveLength(1);
     expect((await as(stranger,'select * from get_published_activities()')).rows).toHaveLength(1);
     await expect(as(owner,'select get_group_members($1)',[other])).rejects.toThrow(/administrar/);
   });
@@ -99,6 +111,43 @@ describe('Permisos reales de PostgreSQL y membresías',()=>{
     await expect(as(member,'select get_group_admin_activities($1)',[sr])).rejects.toThrow(/administrar/);
     await expect(as(stranger,'select get_group_admin_activities($1)',[sr])).rejects.toThrow(/administrar/);
   });
+
+  it('oculta cantidades a miembros en ambas APIs, incluso si administran otro grupo',async()=>{
+    const event='20000000-0000-4000-8000-000000000001';
+    const legacy=(await as(member,'select * from get_published_activities()')).rows as {capacity:number|null;participants:number|null}[];
+    expect(legacy[0].capacity).toBeNull();expect(legacy[0].participants).toBeNull();
+    const calendar=(await as(member,'select get_group_calendar() as items')).rows as {items:{id:string;capacity:number|null;participants:number|null;registration_open:boolean}[]}[];
+    expect(calendar[0].items.find(a=>a.id===event)).toMatchObject({capacity:null,participants:null,registration_open:false});
+    const adminRows=(await as(owner,'select get_group_calendar() as items')).rows as {items:{id:string;capacity:number;participants:number}[]}[];
+    expect(adminRows[0].items.find(a=>a.id===event)).toMatchObject({capacity:1,participants:1});
+    await as(stranger,'select join_group($1)',[sr]);
+    await as(owner,"select manage_group_member($1,$2,'approve')",[sr,stranger]);
+    expect((await as(stranger,'select capacity,participants from get_published_activities() where id=$1',[event])).rows).toEqual([{capacity:null,participants:null}]);
+    await as(owner,"select manage_group_member($1,$2,'remove')",[sr,stranger]);
+  });
+  it('solo el administrador de cada grupo puede subir y asignar su logo',async()=>{
+    const path=sr+'/1790000000000-prueba.png';
+    const upload="insert into storage.objects(bucket_id,name,metadata) values('group-logos',$1,'{\"mimetype\":\"image/png\",\"size\":1024}')";
+    await expect(as(member,upload,[path])).rejects.toThrow(/row-level/);
+    await expect(as(stranger,upload,[path])).rejects.toThrow(/row-level/);
+    await as(owner,upload,[path]);
+    await expect(as(member,'select set_group_logo($1,$2)',[sr,path])).rejects.toThrow(/administrar/);
+    await expect(as(stranger,'select set_group_logo($1,$2)',[sr,path])).rejects.toThrow(/administrar/);
+    await expect(as(owner,'select set_group_logo($1,$2)',[sr,other+'/1-logo.png'])).rejects.toThrow(/pertenecer/);
+    await expect(as(owner,'select set_group_logo($1,$2)',[sr,sr+'/1-missing.png'])).rejects.toThrow(/PNG/);
+    await expect(as(null,'select set_group_logo($1,$2)',[sr,path])).rejects.toThrow(/permission/);
+    await as(owner,'select set_group_logo($1,$2)',[sr,path]);
+    expect((await db.query('select logo_url from groups where id=$1',[sr])).rows).toEqual([{logo_url:path}]);
+    expect((await as(member,"select name from storage.objects where name=$1",[path])).rows).toHaveLength(1);
+    expect((await as(owner,"delete from storage.objects where name=$1 returning name",[path])).rows).toHaveLength(0);
+    expect((await as(owner,"update storage.objects set metadata='{}' where name=$1 returning name",[path])).rows).toHaveLength(0);
+    await as(owner,"select manage_group_member($1,$2,'promote')",[sr,member]);
+    const adminPath=sr+'/1790000000001-admin.png';
+    await as(member,upload,[adminPath]);
+    await as(member,'select set_group_logo($1,$2)',[sr,adminPath]);
+    await as(owner,"select manage_group_member($1,$2,'demote')",[sr,member]);
+    await expect(as(member,upload,[sr+'/1790000000002-revoked.png'])).rejects.toThrow(/row-level/);
+  });
   it('un propietario no puede salir sin transferir',async()=>{
     await expect(as(owner,'select leave_group($1)',[sr])).rejects.toThrow(/Transfiere/);
   });
@@ -111,6 +160,58 @@ describe('Permisos reales de PostgreSQL y membresías',()=>{
   });
   it('un grupo abierto habilita acceso al unirse y admite múltiples membresías',async()=>{
     expect((await as(member,'select join_group($1) as state',[other])).rows).toEqual([{state:'active'}]);
-    expect((await as(member,'select * from activities')).rows).toHaveLength(1);
+    expect((await as(member,'select * from activities')).rows).toHaveLength(0);
+    expect((await as(member,'select * from get_published_activities()')).rows).toHaveLength(1);
+  });
+});
+
+describe('Aprobación central y vencimiento de grupos nuevos',()=>{
+  let pending:string;
+  it('crear grupo deja solo una solicitud privada de 48 horas sin administración habilitada',async()=>{
+    pending=((await as(stranger,"select create_group('Comunidad nueva','Descripción','Santiago','open') id")).rows[0] as {id:string}).id;
+    const stored=(await db.query('select is_active,approval_status,extract(epoch from (approval_expires_at-created_at))::int seconds from groups where id=$1',[pending])).rows;
+    expect(stored).toEqual([{is_active:false,approval_status:'pending',seconds:172800}]);
+    expect((await as(stranger,'select is_group_admin($1) allowed',[pending])).rows).toEqual([{allowed:false}]);
+    const own=(await as(stranger,'select get_groups() items')).rows as {items:{id:string}[]}[];
+    const others=(await as(member,'select get_groups() items')).rows as {items:{id:string}[]}[];
+    expect(own[0].items.some(g=>g.id===pending)).toBe(true);
+    expect(others[0].items.some(g=>g.id===pending)).toBe(false);
+    await expect(as(member,'select join_group($1)',[pending])).rejects.toThrow(/disponible/);
+    await expect(as(stranger,"insert into activities(title,meeting_point,group_id) values('No autorizada','Parque',$1)",[pending])).rejects.toThrow(/row-level/);
+    await expect(as(stranger,"insert into storage.objects(bucket_id,name,metadata) values('group-logos',$1,'{}')",[pending+'/1-logo.png'])).rejects.toThrow(/row-level/);
+    await expect(as(stranger,"select create_group('Otra petición','','','open')")).rejects.toThrow(/Ya tienes una solicitud/);
+  });
+  it('solo la administración general puede ver solicitudes y aprobarlas',async()=>{
+    await expect(as(stranger,'select get_group_creation_requests()')).rejects.toThrow(/administración general/);
+    await expect(as(stranger,"select review_group_creation($1,'approve')",[pending])).rejects.toThrow(/administración general/);
+    await expect(as(member,"insert into admin_users(user_id) values($1)",[member])).rejects.toThrow(/permission/);
+    const rows=(await as(owner,'select get_group_creation_requests() items')).rows as {items:{id:string}[]}[];
+    expect(rows[0].items.some(g=>g.id===pending)).toBe(true);
+    await as(owner,"select review_group_creation($1,'approve')",[pending]);
+    expect((await as(stranger,'select is_group_admin($1) allowed',[pending])).rows).toEqual([{allowed:true}]);
+    await db.query("update groups set approval_expires_at=now()-interval '1 second' where id=$1",[pending]);
+    await db.query('select purge_expired_group_requests()');
+    expect((await db.query('select id from groups where id=$1',[pending])).rows).toHaveLength(1);
+  });
+  it('rechazados desaparecen al cumplir 48 horas y la limpieza no toca grupos aprobados',async()=>{
+    const id=((await as(member,"select create_group('No aprobado','','','approval') id")).rows[0] as {id:string}).id;
+    await as(owner,"select review_group_creation($1,'reject')",[id]);
+    await db.query('update groups set approval_expires_at=now() where id=$1',[id]);
+    const listed=(await as(member,'select get_groups() items')).rows as {items:{id:string}[]}[];
+    expect(listed[0].items.some(g=>g.id===id)).toBe(false);
+    expect((await as(member,'select id from groups where id=$1',[id])).rows).toHaveLength(0);
+    await expect(as(owner,"select review_group_creation($1,'approve')",[id])).rejects.toThrow(/resuelta o venció/);
+    await expect(as(member,'select purge_expired_group_requests()')).rejects.toThrow(/permission/);
+    expect((await db.query('select purge_expired_group_requests() n')).rows).toEqual([{n:1}]);
+    expect((await db.query('select group_id from group_memberships where group_id=$1',[id])).rows).toHaveLength(0);
+    expect((await db.query("select id from groups where id in ($1,$2,$3)",[sr,other,pending])).rows).toHaveLength(3);
+  });
+  it('las solicitudes sin respuesta vencen igual y permiten volver a solicitar después',async()=>{
+    const id=((await as(member,"select create_group('Sin respuesta','','','approval') id")).rows[0] as {id:string}).id;
+    await db.query("update groups set approval_expires_at=now()-interval '1 second' where id=$1",[id]);
+    expect((await db.query('select purge_expired_group_requests() n')).rows).toEqual([{n:1}]);
+    expect((await db.query('select id from groups where id=$1',[id])).rows).toHaveLength(0);
+    const retry=(await as(member,"select create_group('Nuevo intento','','','approval') id")).rows;
+    expect(retry).toHaveLength(1);
   });
 });

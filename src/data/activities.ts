@@ -14,8 +14,9 @@ export type AppActivity = {
   level?: string;
   difficulty?: string;
   note?: string;
-  participants: number;
-  capacity: number;
+  participants: number | null;
+  capacity: number | null;
+  registrationOpen?: boolean;
 };
 
 export type PublishedActivityRow = {
@@ -30,11 +31,12 @@ export type PublishedActivityRow = {
   ending_point: string | null;
   skill_level: string | null;
   difficulty: 'baja' | 'media' | 'alta' | null;
-  capacity: number;
+  capacity: number | null;
   description: string | null;
   notes: string | null;
   helmet_required: boolean;
-  participants: number;
+  participants: number | null;
+  registration_open?: boolean;
 };
 
 export const activityTypeLabels: Record<ActivityType, string> = {
@@ -75,6 +77,7 @@ export function toAppActivity(row: PublishedActivityRow): AppActivity {
     meetingPoint: row.meeting_point,
     note: row.notes ?? row.description ?? undefined,
     participants: row.participants,
+    registrationOpen: row.registration_open ?? (row.capacity != null && row.participants != null ? row.participants < row.capacity : false),
     time,
     title: row.title,
     type: row.activity_type,

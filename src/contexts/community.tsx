@@ -7,12 +7,13 @@ import { supabase } from '@/lib/supabase';
 export type Group = {
   id: string; slug: string; name: string; description: string; city: string; logo_url: string | null;
   join_policy: 'open' | 'approval'; member_count: number;
+  approval_status?: 'approved' | 'pending' | 'rejected'; approval_expires_at?: string | null;
   membership_status: 'active' | 'pending' | 'left' | 'blocked' | 'rejected' | null;
   membership_role: 'owner' | 'admin' | 'member' | null;
 };
-type Community = { groups: Group[]; activities: AppActivity[]; isLoading: boolean; groupsError: string | null; calendarError: string | null; refresh: () => Promise<void> };
+type Community = { isPlatformAdmin: boolean; groups: Group[]; activities: AppActivity[]; isLoading: boolean; groupsError: string | null; calendarError: string | null; refresh: () => Promise<void> };
 const CommunityContext = createContext<Community | null>(null);
-const emptyData = { groups: [] as Group[], activities: [] as AppActivity[], groupsError: null as string | null, calendarError: null as string | null };
+const emptyData = { isPlatformAdmin: false, groups: [] as Group[], activities: [] as AppActivity[], groupsError: null as string | null, calendarError: null as string | null };
 
 export function CommunityProvider({ children }: { children: ReactNode }) {
   const { user, registrationVersion, isLoading: authLoading } = useDemoSession();
@@ -27,12 +28,13 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
     }
     setState((previous) => ({ ...(previous.identity === identity ? previous : emptyData), identity, isLoading: true }));
     try {
-      const [groups, calendar] = await Promise.all([
+      const [groups, calendar, platformAdmin] = await Promise.all([
         supabase.rpc('get_groups'),
         identity !== 'guest' ? supabase.rpc('get_group_calendar') : Promise.resolve({ data: [], error: null }),
+        supabase.rpc('is_platform_admin'),
       ]);
       if (request !== sequence.current) return;
-      setState({ identity, isLoading: false,
+      setState({ identity, isLoading: false, isPlatformAdmin: !platformAdmin.error && platformAdmin.data === true,
         groups: groups.error ? [] : (groups.data ?? []) as Group[],
         activities: calendar.error ? [] : ((calendar.data ?? []) as PublishedActivityRow[]).map(toAppActivity),
         groupsError: groups.error ? 'No pudimos cargar los grupos. Revisa tu conexión e inténtalo nuevamente.' : null,
@@ -47,7 +49,7 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
     const timeout = setTimeout(() => { void refresh(); }, 0);
     const listener = AppState.addEventListener('change', (state) => {
       if (state === 'active') void refresh();
-      else { ++sequence.current; setState({ ...emptyData, identity, isLoading: true }); }
+      else { ++sequence.current; setState(previous => ({ ...previous, activities: [], isLoading: true })); }
     });
     const interval = setInterval(() => { if (AppState.currentState === 'active') void refresh(); }, 60_000);
     const requestSequence = sequence;
