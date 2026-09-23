@@ -12,3 +12,5 @@ export function currentPlatformGroups(groups: PlatformGroup[], now: number) {
   return groups.filter(group => group.approval_status === 'approved' ||
     (group.approval_expires_at !== null && Date.parse(group.approval_expires_at) > now));
 }
+
+export type GroupDeletion = { id: string; group_name: string; deleted_at: string; administrator_name: string; member_count: number; activity_count: number; registration_count: number };

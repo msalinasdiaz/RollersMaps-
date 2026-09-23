@@ -34,7 +34,7 @@ beforeAll(async()=>{
     create table activities(id uuid primary key default gen_random_uuid(),title text,activity_type text default 'ruta',starts_at timestamptz default now()+interval '1 day',ends_at timestamptz,meeting_point text,ending_point text,skill_level text,difficulty text,capacity integer default 1,description text,notes text,helmet_required boolean default true,status text default 'published',created_at timestamptz default now(),updated_at timestamptz default now());
     create table registrations(id uuid primary key default gen_random_uuid(),user_id uuid references auth.users,activity_id uuid references activities,status text default 'registered',unique(user_id,activity_id));
     create table routes(id uuid primary key default gen_random_uuid(),status text);
-    create table user_activities(id uuid primary key default gen_random_uuid(),user_id uuid references auth.users);
+    create table user_activities(id uuid primary key default gen_random_uuid(),user_id uuid references auth.users, group_activity_id uuid references activities(id) on delete set null, title text, route_geojson jsonb);
     alter table activities enable row level security;
     create policy old_public_leak on activities for select using(true);
     grant all on activities,registrations to authenticated;
@@ -45,6 +45,7 @@ beforeAll(async()=>{
     await db.exec(readFileSync('supabase/migrations/20260922_calendar_privacy_logos.sql','utf8'));
     await db.exec(readFileSync('supabase/migrations/20260922_group_approval.sql','utf8'));
     await db.exec(readFileSync('supabase/migrations/20260922_platform_groups.sql','utf8'));
+    await db.exec(readFileSync('supabase/migrations/20260923_platform_group_deletion.sql','utf8'));
 });
 afterAll(async()=>{await db.close()});
 describe('Permisos reales de PostgreSQL y membresías',()=>{
@@ -54,6 +55,7 @@ describe('Permisos reales de PostgreSQL y membresías',()=>{
     await db.exec(readFileSync('supabase/migrations/20260922_calendar_privacy_logos.sql','utf8'));
     await db.exec(readFileSync('supabase/migrations/20260922_group_approval.sql','utf8'));
     await db.exec(readFileSync('supabase/migrations/20260922_platform_groups.sql','utf8'));
+    await db.exec(readFileSync('supabase/migrations/20260923_platform_group_deletion.sql','utf8'));
     const result=await db.query('select user_id from group_memberships');
     expect(result.rows).toEqual([{user_id:owner}]);
     expect((await db.query('select count(*)::int as n from activities')).rows).toEqual([{n:1}]);
@@ -246,4 +248,52 @@ describe('Aprobación central y vencimiento de grupos nuevos',()=>{
       expect((await tx.query<{items:unknown[]}>("select get_platform_groups() items")).rows[0].items.length).toBeGreaterThan(1);
     });
   });
+});
+
+describe('Eliminación de grupos con historial',()=>{
+ it('un dueño de grupo sin rol general, un miembro y un anónimo no pueden eliminar ni leer el historial',async()=>{
+   await expect(as(stranger,"select delete_platform_group($1,'Grupo ajeno')",[other])).rejects.toThrow(/administración general/);
+   await expect(as(member,"select delete_platform_group($1,'Santiago Rollers')",[sr])).rejects.toThrow(/administración general/);
+   await expect(as(null,"select delete_platform_group($1,'Santiago Rollers')",[sr])).rejects.toThrow(/permission denied/);
+   await expect(as(member,'select get_platform_group_deletions()')).rejects.toThrow(/administración general/);
+   expect((await as(member,'select * from platform_group_deletions')).rows).toEqual([]);
+   await expect(as(owner,"delete from platform_group_deletions")).rejects.toThrow(/permission denied/);
+   expect((await db.query('select id from groups where id=$1',[sr])).rows).toHaveLength(1);
+ });
+ it('exige nombre exacto y elimina un grupo ajeno conservando el GPS personal y el registro de quién lo eliminó',async()=>{
+   const id='30000000-0000-4000-8000-000000000001', activity='30000000-0000-4000-8000-000000000002', gps='30000000-0000-4000-8000-000000000003';
+   await db.query("insert into groups(id,slug,name,owner_id) values($1,'prueba-eliminacion','Grupo para eliminar',$2)",[id,stranger]);
+   await db.query("insert into group_memberships(group_id,user_id,role,status) values($1,$2,'owner','active'),($1,$3,'member','active')",[id,stranger,member]);
+   await db.query("insert into activities(id,title,group_id) values($1,'Actividad de prueba',$2)",[activity,id]);
+   await db.query('insert into registrations(user_id,activity_id) values($1,$2)',[member,activity]);
+   const geometry={type:'LineString',coordinates:[[-70,-33],[-70.01,-33.01]]};
+   await db.query('insert into user_activities(id,user_id,group_activity_id,title,route_geojson) values($1,$2,$3,$4,$5)',[gps,member,activity,'Mi recorrido',JSON.stringify(geometry)]);
+   await expect(as(owner,"select delete_platform_group($1,'Nombre incorrecto')",[id])).rejects.toThrow(/nombre/);
+   expect((await db.query('select id from groups where id=$1',[id])).rows).toHaveLength(1);
+   expect((await db.query('select id from platform_group_deletions where group_id=$1',[id])).rows).toHaveLength(0);
+   const unrelated=(await db.query('select count(*)::int n from activities where group_id<>$1',[id])).rows;
+   await as(owner,"select delete_platform_group($1,'Grupo para eliminar')",[id]);
+   for(const table of ['groups','group_memberships','activities']) {
+     const column=table==='groups'?'id':'group_id';
+     expect((await db.query('select count(*)::int n from '+table+' where '+column+'=$1',[id])).rows).toEqual([{n:0}]);
+   }
+   expect((await db.query('select count(*)::int n from registrations where activity_id=$1',[activity])).rows).toEqual([{n:0}]);
+   expect((await db.query('select group_activity_id,title,route_geojson from user_activities where id=$1',[gps])).rows).toEqual([{group_activity_id:null,title:'Mi recorrido',route_geojson:geometry}]);
+   expect((await db.query('select count(*)::int n from activities where group_id<>$1',[id])).rows).toEqual(unrelated);
+   expect((await db.query('select deleted_by,group_name,member_count,activity_count,registration_count from platform_group_deletions where group_id=$1',[id])).rows).toEqual([{deleted_by:owner,group_name:'Grupo para eliminar',member_count:2,activity_count:1,registration_count:1}]);
+   const history=(await as(owner,'select get_platform_group_deletions() items')).rows[0] as {items:{group_name:string}[]};
+   expect(history.items.some(item=>item.group_name==='Grupo para eliminar')).toBe(true);
+   await expect(as(owner,"select delete_platform_group($1,'Grupo para eliminar')",[id])).rejects.toThrow(/ya no/);
+   const offline=crypto.randomUUID();
+   await db.query('insert into user_activities(id,user_id,group_activity_id,title,route_geojson) values($1,$2,$3,$4,$5)',[offline,member,activity,'GPS pendiente sin conexión',JSON.stringify(geometry)]);
+   expect((await db.query('select group_activity_id,route_geojson from user_activities where id=$1',[offline])).rows).toEqual([{group_activity_id:null,route_geojson:geometry}]);
+ });
+ it('también elimina solicitudes pendientes y rechazadas sin habilitarlas',async()=>{
+   for(const status of ['pending','rejected']){
+     const id=crypto.randomUUID();
+     await db.query("insert into groups(id,slug,name,owner_id,is_active,approval_status,approval_expires_at) values($1,$2,$3,$4,false,$5,now()+interval '1 day')",[id,'prueba-'+id,'Solicitud '+status,member,status]);
+     await as(owner,'select delete_platform_group($1,$2)',[id,'Solicitud '+status]);
+     expect((await db.query('select approval_status from platform_group_deletions where group_id=$1',[id])).rows).toEqual([{approval_status:status}]);
+   }
+ });
 });

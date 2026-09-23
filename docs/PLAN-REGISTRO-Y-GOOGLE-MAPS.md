@@ -38,7 +38,7 @@ Firebase Auth es una alternativa, pero también tiene cuotas: por ejemplo, Spark
 Antes de subir plan por cantidad de usuarios, medir tamaño de recorridos, base y transferencia. Los trazados GPS pueden consumir almacenamiento mucho antes de agotar la cuota de usuarios.
 
 ## Implementación del registro, en orden
-1. Confirmar dominio propio y acceso a sus registros DNS; quedó consultado al propietario.
+1. El propietario confirmó uxspa.cl. Falta acceso a sus registros DNS para autenticar el remitente.
 2. Configurar un remitente y autenticar el dominio con los registros que entregue el proveedor. Guardar credenciales SMTP únicamente en Supabase.
 3. Ajustar cuotas de Auth según el proveedor y el pico esperado de altas, conservando protección contra abuso y evitando reintentos automáticos repetidos.
 4. Revisar confirmación y recuperación: enlace hacia la app, sesión restaurada, enlaces vencidos, reenvío con contador y mensajes comprensibles.
@@ -65,4 +65,4 @@ Se requiere una cuenta de facturación y una clave válida aunque el uso básico
 Configurar alertas y cuotas por API para las funciones pagadas. Un presupuesto de solo alertas no detiene cargos. Los nuevos topes de gasto de Cloud Billing solo cubren servicios elegibles; la lista actual no incluye Maps, por lo que no debemos depender de ellos para bloquear sus cobros. [Presupuestos](https://docs.cloud.google.com/billing/docs/how-to/budgets) y [servicios elegibles](https://docs.cloud.google.com/billing/docs/how-to/budgets-spend-caps).
 
 ## Estado al entregar
-Preparación y evaluación terminadas. Pendientes para activar servicios: dominio/remitente, proveedor SMTP, proyecto Google Cloud con facturación y claves restringidas. Todavía no se cambió el proveedor de mapas ni la configuración de Auth. El siguiente paso es configurar el registro público, comprobarlo de extremo a extremo y luego integrar Google Maps.
+Preparación y evaluación terminadas. Dominio disponible: uxspa.cl. Pendientes para activar servicios: acceso DNS y remitente, proveedor SMTP, proyecto Google Cloud con facturación y claves restringidas. Todavía no se cambió el proveedor de mapas ni la configuración de Auth. El siguiente paso es configurar el registro público, comprobarlo de extremo a extremo y luego integrar Google Maps.

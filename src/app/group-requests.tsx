@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Modal, ScrollView, Text, View } from 'react-native';
 import { Button, Card, Field, Notice, Screen, ui } from '@/components/community-ui';
 import { useCommunity } from '@/contexts/community';
 import { useDemoSession } from '@/contexts/demo-session';
-import { currentPlatformGroups, groupFilters, type GroupFilter, type PlatformGroup } from '@/lib/platform-groups';
+import { currentPlatformGroups, groupFilters, type GroupDeletion, type GroupFilter, type PlatformGroup } from '@/lib/platform-groups';
 import { supabase } from '@/lib/supabase';
 
 export default function GroupRequests() {
@@ -25,6 +25,11 @@ function PlatformGroups() {
   const [referenceTime, setReferenceTime] = useState(() => Date.now());
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<PlatformGroup | null>(null);
+  const [confirmation, setConfirmation] = useState('');
+  const [history, setHistory] = useState<GroupDeletion[] | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const sequence = useRef(0);
   const deciding = useRef(false);
   const load = useCallback(async () => {
@@ -63,6 +68,27 @@ function PlatformGroups() {
       { text: 'Rechazar', style: 'destructive', onPress: () => void decide(group.id, 'reject') },
     ]);
   }
+  async function loadHistory() {
+    setHistoryLoading(true); setHistoryError(null);
+    try {
+      const result = await supabase.rpc('get_platform_group_deletions');
+      if (result.error) throw result.error;
+      setHistory(result.data ?? []);
+    } catch { setHistoryError('No pudimos cargar el historial de eliminaciones.'); }
+    finally { setHistoryLoading(false); }
+  }
+  async function removeGroup() {
+    if (!deleting || deciding.current || confirmation.trim() !== deleting.name.trim()) return;
+    deciding.current = true; setBusy(deleting.id); setError(null);
+    try {
+      const result = await supabase.rpc('delete_platform_group', { p_group_id: deleting.id, p_confirmation_name: confirmation });
+      if (result.error) { setError('No pudimos eliminar el grupo. Puede haber cambiado; actualiza la lista y vuelve a intentarlo.'); return; }
+      setDeleting(null); setConfirmation('');
+      await load(); await refresh();
+      if (history !== null) await loadHistory();
+    } catch { setError('No pudimos confirmar la eliminación. Actualiza la lista antes de reintentar.'); }
+    finally { deciding.current = false; setBusy(null); }
+  }
   const current = currentPlatformGroups(groups, referenceTime);
   const shown = current.filter(group => (filter === 'all' || group.approval_status === filter) &&
     (group.name + ' ' + group.city + ' ' + group.requester_name).toLocaleLowerCase('es').includes(query.trim().toLocaleLowerCase('es')));
@@ -83,6 +109,32 @@ function PlatformGroups() {
               <Button busy={busy === group.id} disabled={busy !== null} onPress={() => void decide(group.id, 'approve')}>Aprobar grupo</Button>
               <Button secondary disabled={busy !== null} onPress={() => reject(group)}>Rechazar</Button>
             </> : null}
+            <Button secondary disabled={busy !== null} onPress={() => { setDeleting(group); setConfirmation(''); setError(null); }}>Eliminar grupo</Button>
           </Card>)}
+    <Button secondary busy={historyLoading} disabled={historyLoading} onPress={() => void loadHistory()}>Ver historial de eliminaciones</Button>
+    {historyError ? <Text style={[ui.text, { color: '#FF9C9C' }]}>{historyError}</Text> : null}
+    {history !== null ? <Card>
+      <Text style={ui.heading}>Últimas eliminaciones</Text>
+      {!history.length ? <Text style={ui.muted}>Todavía no se han eliminado grupos.</Text> : history.map(item => <View key={item.id} style={{ gap: 5, paddingVertical: 10 }}>
+        <Text style={ui.text}>{item.group_name}</Text>
+        <Text style={ui.muted}>{new Date(item.deleted_at).toLocaleString('es-CL')} · {item.administrator_name}</Text>
+        <Text style={ui.muted}>{item.member_count} membresías · {item.activity_count} actividades · {item.registration_count} inscripciones</Text>
+      </View>)}
+    </Card> : null}
+    <Modal visible={deleting !== null} transparent animationType="fade" onRequestClose={() => { if (!busy) setDeleting(null); }}>
+      <View style={{ flex: 1, justifyContent: 'center', padding: 22, backgroundColor: '#000000CC' }}>
+        <ScrollView style={{ maxHeight: '85%', flexGrow: 0 }} keyboardShouldPersistTaps="handled">
+          <Card>
+            <Text style={ui.heading}>Eliminar grupo</Text>
+            <Text style={ui.text}>Se eliminará {deleting?.name}, sus membresías, actividades e inscripciones. Esta acción no se puede deshacer.</Text>
+            <Text style={ui.muted}>Los recorridos GPS personales se conservan. La eliminación queda registrada con tu usuario y la fecha.</Text>
+            <Field label="Escribe el nombre del grupo para confirmar" value={confirmation} onChangeText={setConfirmation} editable={busy === null} autoCapitalize="none" />
+            {error ? <Text style={[ui.text, { color: '#FF9C9C' }]}>{error}</Text> : null}
+            <Button busy={busy !== null} disabled={busy !== null || !deleting || confirmation.trim() !== deleting.name.trim()} onPress={() => void removeGroup()}>Eliminar definitivamente</Button>
+            <Button secondary disabled={busy !== null} onPress={() => setDeleting(null)}>Volver</Button>
+          </Card>
+        </ScrollView>
+      </View>
+    </Modal>
   </Screen>;
 }
