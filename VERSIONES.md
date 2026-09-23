@@ -2,7 +2,7 @@
 
 Actualizado el 23 de septiembre de 2026.
 
-**Avance actual: 1.4.0, revisión 26 — eliminación de grupos con auditoría, GPS mejorado y panel preparado para cPanel.**
+**Avance actual: 1.4.0, revisión 26 — eliminación de grupos con auditoría, GPS mejorado y panel publicado en rollersmaps-admin.uxspa.cl.**
 
 [Ver cambios y validación](docs/VALIDACION-REVISION-26.md). [GPS de la revisión 25](docs/VALIDACION-REVISION-25.md). [Plan de registro público y Google Maps](docs/PLAN-REGISTRO-Y-GOOGLE-MAPS.md). La última etiqueta publicada sigue siendo beta.2.
 

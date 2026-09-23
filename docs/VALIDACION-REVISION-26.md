@@ -39,8 +39,8 @@ Paquete: cl.santiagorollers.rollersmaps.preview.
 No es una publicación en tiendas.
 
 ## Dominio propio
-uxspa.cl fue confirmado por el propietario. Se preparó y probó una compilación del panel para cPanel, sin dependencia de ChatGPT en ejecución, con destino previsto rollersmaps-admin.uxspa.cl.
-El subdominio, DNS y HTTPS no se han activado todavía: falta una sesión de cPanel del propietario. El panel y los datos seguirán usando las cuentas y permisos actuales de Supabase.
+El panel está publicado en https://rollersmaps-admin.uxspa.cl/ con DNS y HTTPS verificados. Funciona desde el hosting del propietario sin depender de ChatGPT; conserva las cuentas, datos y permisos actuales de Supabase.
+Se comprobaron los archivos publicados, la conexión real con Auth, la presentación móvil y seis escenarios de permisos con datos simulados. La aceptación con la cuenta personal del propietario sigue pendiente. Detalles: docs/DESPLIEGUE-PANEL-UXSPA.md.
 Paquete entregable: RollersMaps-Admin-cPanel-revision-26.zip.
 Instrucciones: Panel-RollersMaps-en-uxspa.md.
 
@@ -53,4 +53,4 @@ Confirmación: 2026-09-23T18:21:10.290152+00:00.
 Código publicado: 92f8ce04d0550ad020f1948efd31b683731f7fe5.
 Versión: appgprj_6aa5644aa5f08191b2fbd76b825d27f1~appgver_b4949c0689508191b131371820e21b3e.
 Despliegue: appgdep_6ab4187de03c819194b09414e3f107ae.
-Se conservó el acceso privado del sitio actual. La publicación de uxspa.cl sigue pendiente de inicio de sesión en cPanel.
+Se conservó el acceso privado del sitio anterior durante la transición. El acceso independiente https://rollersmaps-admin.uxspa.cl/ está publicado y verificado desde las 18:35 UTC.
