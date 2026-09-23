@@ -45,3 +45,12 @@ Paquete entregable: RollersMaps-Admin-cPanel-revision-26.zip.
 Instrucciones: Panel-RollersMaps-en-uxspa.md.
 
 El informe de registro público y Google Maps sigue vigente; ahora se dispone del dominio para configurar el remitente. SMTP y Google Maps todavía no se han activado.
+
+## Publicación web confirmada
+El panel existente se publicó correctamente: https://rollersmaps-admin.msalinasdiaz.chatgpt.site
+Estado: succeeded.
+Confirmación: 2026-09-23T18:21:10.290152+00:00.
+Código publicado: 92f8ce04d0550ad020f1948efd31b683731f7fe5.
+Versión: appgprj_6aa5644aa5f08191b2fbd76b825d27f1~appgver_b4949c0689508191b131371820e21b3e.
+Despliegue: appgdep_6ab4187de03c819194b09414e3f107ae.
+Se conservó el acceso privado del sitio actual. La publicación de uxspa.cl sigue pendiente de inicio de sesión en cPanel.
