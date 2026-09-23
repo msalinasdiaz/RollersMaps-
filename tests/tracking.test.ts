@@ -104,4 +104,58 @@ describe('GPS y persistencia sobre SQLite real',()=>{
     vi.resetModules();store=await import('../src/lib/tracking-store');
     const s=store.getTrackingSnapshot('account-a')!;expect(s.recordId).toMatch(/^legacy-/);expect(s.route).toHaveLength(1);
   });
+
+  it('la pausa detiene tiempo y puntos, y sobrevive al reinicio',async()=>{
+    let now=baseTime;vi.spyOn(Date,'now').mockImplementation(()=>now);
+    start();await store.appendLocationBatch([point(.0001,5)]);
+    now+=10000;store.pauseLocalTrackingSession('account-a');
+    const paused=store.getTrackingSnapshot('account-a')!;
+    now+=60000;await store.appendLocationBatch([point(.0002,20)]);
+    expect(store.getTrackingSnapshot('account-a')).toMatchObject({status:'paused',durationSeconds:10,distanceKm:paused.distanceKm});
+    expect(store.getTrackingSnapshot('account-a')!.route).toHaveLength(2);
+    vi.resetModules();store=await import('../src/lib/tracking-store');
+    expect(store.getTrackingSnapshot('account-a')).toMatchObject({status:'paused',durationSeconds:10});
+    vi.restoreAllMocks();
+  });
+  it('reanudar crea otro tramo sin sumar el traslado durante la pausa ni su tiempo',async()=>{
+    let now=baseTime;vi.spyOn(Date,'now').mockImplementation(()=>now);
+    start();await store.appendLocationBatch([point(.0001,5)]);
+    now=baseTime+10000;store.pauseLocalTrackingSession('account-a');
+    now=baseTime+110000;store.resumeLocalTrackingSession('account-a',point(.5,110));
+    now+=5000;await store.appendLocationBatch([point(.5001,115),point(.0002,20)]);
+    const resumed=store.getTrackingSnapshot('account-a')!;
+    expect(resumed.status).toBe('active');expect(resumed.durationSeconds).toBe(15);
+    expect(resumed.distanceKm).toBeCloseTo(.022239,4);
+    expect(resumed.route.map(p=>p.segment)).toEqual([0,0,1,1]);
+    store.pauseLocalTrackingSession('account-a');
+    now+=60000;store.markTrackingPendingSave();
+    const final=store.getTrackingSnapshot('account-a')!;
+    expect(final.durationSeconds).toBe(15);expect(final.endedAt).toBe(now);
+    store.archiveTrackingSession(final);
+    expect(store.getLocalActivities('account-a')[0].snapshot.route.map(p=>p.segment)).toEqual([0,0,1,1]);
+    vi.restoreAllMocks();
+  });
+  it('no permite reanudar otra cuenta ni aceptar una ubicación anterior a la pausa',()=>{
+    let now=baseTime;vi.spyOn(Date,'now').mockImplementation(()=>now);
+    start();now+=10000;store.pauseLocalTrackingSession('account-b');
+    expect(store.getTrackingSnapshot('account-a')!.status).toBe('active');
+    store.pauseLocalTrackingSession('account-a');now+=10000;
+    expect(()=>store.resumeLocalTrackingSession('account-b',point(.0001,20))).toThrow(/esta cuenta/);
+    expect(()=>store.resumeLocalTrackingSession('account-a',point(.0001,5))).toThrow(/reciente/);
+    expect(()=>store.resumeLocalTrackingSession('account-a',point(.0001,20,150))).toThrow(/precisa/);
+    expect(store.getTrackingSnapshot('account-a')!.status).toBe('paused');
+    store.markTrackingPendingSave();
+    expect(()=>store.resumeLocalTrackingSession('account-a',point(.0001,20))).toThrow(/pausa/);
+    vi.restoreAllMocks();
+  });
+  it('migra una revisión 24 sin borrar puntos y guarda el nombre revisado',async()=>{
+    start();await store.appendLocationBatch([point(.0001,5)]);
+    holder.db!.exec('ALTER TABLE tracking_session DROP COLUMN paused_at; ALTER TABLE tracking_session DROP COLUMN paused_ms; ALTER TABLE tracking_session DROP COLUMN segment_index; ALTER TABLE tracking_points DROP COLUMN segment;');
+    vi.resetModules();store=await import('../src/lib/tracking-store');
+    expect(store.getTrackingSnapshot('account-a')!.route).toHaveLength(2);
+    expect(store.getTrackingSnapshot('account-a')!.status).toBe('active');
+    store.setTrackingTitle('account-a','Mi recorrido');store.markTrackingPendingSave();
+    store.archiveTrackingSession(store.getTrackingSnapshot('account-a')!);
+    expect(store.getLocalActivities('account-a')[0].snapshot.title).toBe('Mi recorrido');
+  });
 });

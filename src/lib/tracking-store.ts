@@ -11,6 +11,7 @@ const MAX_SEGMENT_METERS = 250;
 const MIN_SEGMENT_METERS = 4;
 
 export type StoredCoordinate = {
+  segment?: number;
   accuracy: number | null;
   latitude: number;
   longitude: number;
@@ -29,7 +30,7 @@ export type TrackingSnapshot = {
   rejectedPoints: number;
   route: StoredCoordinate[];
   startedAt: number;
-  status: 'active' | 'pending_save';
+  status: 'active' | 'paused' | 'pending_save';
   title: string;
   userId: string;
 };
@@ -46,12 +47,16 @@ type SessionRow = {
   last_timestamp: number;
   rejected_points: number;
   started_at: number;
-  status: TrackingSnapshot['status'];
+  status: 'active' | 'pending_save';
+  paused_at: number | null;
+  paused_ms: number;
+  segment_index: number;
   title: string;
   user_id: string;
 };
 
 type PointRow = {
+  segment: number;
   accuracy: number | null;
   latitude: number;
   longitude: number;
@@ -103,11 +108,17 @@ function getDatabase() {
   `);
   const columns = database.getAllSync<{ name: string }>('PRAGMA table_info(tracking_session)');
   if (!columns.some((column) => column.name === 'record_id')) database.execSync('ALTER TABLE tracking_session ADD COLUMN record_id TEXT');
+  for (const [name,type] of [['paused_at','INTEGER'],['paused_ms','INTEGER NOT NULL DEFAULT 0'],['segment_index','INTEGER NOT NULL DEFAULT 0']]) {
+    if (!columns.some(column=>column.name===name)) database.execSync('ALTER TABLE tracking_session ADD COLUMN '+name+' '+type);
+  }
+  const pointColumns=database.getAllSync<{name:string}>('PRAGMA table_info(tracking_points)');
+  if (!pointColumns.some(column=>column.name==='segment')) database.execSync('ALTER TABLE tracking_points ADD COLUMN segment INTEGER NOT NULL DEFAULT 0');
   database.runSync("UPDATE tracking_session SET record_id = 'legacy-' || user_id || '-' || started_at WHERE record_id IS NULL");
   return database;
 }
 
 function getBackgroundDatabase() {
+  getDatabase();
   if (!backgroundDatabasePromise) {
     backgroundDatabasePromise = SQLite.openDatabaseAsync(DATABASE_NAME).then(async (openedDatabase) => {
       await openedDatabase.execAsync('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
@@ -179,7 +190,7 @@ export function appendLocationBatch(locations: LocationObject[]) {
 async function appendLocationBatchInternal(locations: LocationObject[]) {
   const db = await getBackgroundDatabase();
   await db.withExclusiveTransactionAsync(async (transaction) => {
-  const session = await transaction.getFirstAsync<SessionRow>("SELECT * FROM tracking_session WHERE id = 1 AND status = 'active'");
+  const session = await transaction.getFirstAsync<SessionRow>("SELECT * FROM tracking_session WHERE id = 1 AND status = 'active' AND paused_at IS NULL");
   if (!session) return;
 
   let previous: StoredCoordinate = {
@@ -224,6 +235,7 @@ async function appendLocationBatchInternal(locations: LocationObject[]) {
         next.accuracy,
         next.reportedSpeedKmh,
       );
+      await transaction.runAsync('UPDATE tracking_points SET segment=? WHERE timestamp=?',session.segment_index,next.timestamp);
       previous = next;
     }
 
@@ -248,11 +260,11 @@ export function getTrackingSnapshot(userId?: string): TrackingSnapshot | null {
 
   const key = session.record_id + ':' + session.last_timestamp;
   if (routeCache?.key !== key) {
-    const points = db.getAllSync<PointRow>('SELECT latitude, longitude, timestamp, accuracy, reported_speed_kmh FROM tracking_points ORDER BY timestamp');
-    routeCache = { key, route: points.map((point) => ({ accuracy: point.accuracy, latitude: point.latitude, longitude: point.longitude, reportedSpeedKmh: point.reported_speed_kmh, timestamp: point.timestamp })) };
+    const points = db.getAllSync<PointRow>('SELECT latitude, longitude, timestamp, accuracy, reported_speed_kmh, segment FROM tracking_points ORDER BY timestamp');
+    routeCache = { key, route: points.map((point) => ({ segment: point.segment, accuracy: point.accuracy, latitude: point.latitude, longitude: point.longitude, reportedSpeedKmh: point.reported_speed_kmh, timestamp: point.timestamp })) };
   }
   const endedAt = session.ended_at;
-  const durationSeconds = Math.max(0, Math.floor(((endedAt ?? Date.now()) - session.started_at) / 1000));
+  const durationSeconds = Math.max(0, Math.floor(((session.paused_at ?? endedAt ?? Date.now()) - session.started_at - session.paused_ms) / 1000));
   const distanceKm = Number(session.distance_km) || 0;
 
   return {
@@ -266,10 +278,34 @@ export function getTrackingSnapshot(userId?: string): TrackingSnapshot | null {
     rejectedPoints: session.rejected_points,
     route: routeCache.route,
     startedAt: session.started_at,
-    status: session.status,
+    status: session.status === 'active' && session.paused_at !== null ? 'paused' : session.status,
     title: session.title,
     userId: session.user_id,
   };
+}
+
+export function pauseLocalTrackingSession(userId: string, pausedAt = Date.now()) {
+  getDatabase().runSync("UPDATE tracking_session SET paused_at=? WHERE id=1 AND user_id=? AND status='active' AND paused_at IS NULL", pausedAt,userId);
+}
+export function resumeLocalTrackingSession(userId: string, location: LocationObject, resumedAt = Date.now()) {
+  const db=getDatabase(), point=toStoredCoordinate(location);
+  if (!isUsablePoint(point)) throw new Error('Espera una señal GPS más precisa para reanudar.');
+  db.withTransactionSync(()=>{
+    const session=db.getFirstSync<SessionRow>("SELECT * FROM tracking_session WHERE id=1 AND user_id=? AND status='active' AND paused_at IS NOT NULL",userId);
+    if (!session || session.paused_at === null) throw new Error('No hay un recorrido en pausa para esta cuenta.');
+    if (point.timestamp < session.paused_at || point.timestamp <= session.last_timestamp) throw new Error('Espera una ubicación GPS reciente para reanudar.');
+    const segment=session.segment_index+1;
+    db.runSync("UPDATE tracking_session SET paused_ms=paused_ms+?,paused_at=NULL,segment_index=?,last_latitude=?,last_longitude=?,last_timestamp=?,last_accuracy=? WHERE id=1",
+      Math.max(0,resumedAt-session.paused_at),segment,point.latitude,point.longitude,point.timestamp,point.accuracy);
+    db.runSync("INSERT INTO tracking_points(latitude,longitude,timestamp,accuracy,reported_speed_kmh,segment) VALUES(?,?,?,?,?,?)",
+      point.latitude,point.longitude,point.timestamp,point.accuracy,point.reportedSpeedKmh,segment);
+  });
+  routeCache=null;
+}
+export function setTrackingTitle(userId: string, title: string) {
+  const clean=title.trim();
+  if (clean.length<3 || clean.length>60) throw new Error('Usa entre 3 y 60 caracteres para el nombre.');
+  getDatabase().runSync("UPDATE tracking_session SET title=? WHERE id=1 AND user_id=?",clean,userId);
 }
 
 export function markTrackingPendingSave(endedAt = Date.now()) {

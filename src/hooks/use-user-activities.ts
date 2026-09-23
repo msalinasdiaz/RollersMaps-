@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { useDemoSession } from '@/contexts/demo-session';
+import { parseRouteGeometry, type RouteCoordinate } from '@/lib/route-geometry';
 import { supabase } from '@/lib/supabase';
 import { getLegacyActivityCount, getLocalActivities, GUEST_OWNER, recoverGuestActivities, renameLocalActivity } from '@/lib/tracking-store';
 import { syncLocalActivities } from '@/lib/local-sync';
@@ -8,15 +9,11 @@ import { syncLocalActivities } from '@/lib/local-sync';
 export type UserActivity = {
   activityType: 'group_activity' | 'free_route' | 'guided_route'; averageSpeedKmh: number;
   distanceKm: number; durationSeconds: number; endedAt: Date; groupActivityId: string | null;
-  id: string; localId?: string; cloudId?: string | null; route: { latitude: number; longitude: number }[];
+  id: string; localId?: string; cloudId?: string | null; route: RouteCoordinate[];
   startedAt: Date; syncStatus: 'not_connected' | 'pending' | 'synced' | 'error'; title: string;
 };
 type Row = { id:string; title:string; activity_type:UserActivity['activityType']; group_activity_id:string|null;
   average_speed_kmh:number; distance_km:number; duration_seconds:number; ended_at:string; started_at:string; route_geojson:unknown };
-function parseRoute(value:unknown):UserActivity['route'] {
-  if (!value || typeof value!=='object' || !('coordinates' in value) || !Array.isArray(value.coordinates)) return [];
-  return value.coordinates.flatMap((c:unknown)=>Array.isArray(c)&&c.length>=2&&Number.isFinite(c[0])&&Number.isFinite(c[1]) ? [{longitude:c[0],latitude:c[1]}] : []);
-}
 export function useUserActivities(enabled=true) {
   const { user, recordedActivityVersion, notifyRecordedActivitySaved }=useDemoSession();
   const owner=user?.id??GUEST_OWNER;
@@ -34,7 +31,7 @@ export function useUserActivities(enabled=true) {
     try {
       const {data,error}=await supabase.from('user_activities').select('id,title,activity_type,group_activity_id,started_at,ended_at,duration_seconds,distance_km,average_speed_kmh,route_geojson').eq('user_id',owner).order('started_at',{ascending:false}).limit(100);
       if(sequence!==request.current)return;
-      const cloud=((data??[]) as Row[]).map((a):UserActivity=>({activityType:a.activity_type,averageSpeedKmh:Number(a.average_speed_kmh),distanceKm:Number(a.distance_km),durationSeconds:a.duration_seconds,endedAt:new Date(a.ended_at),groupActivityId:a.group_activity_id,id:a.id,cloudId:a.id,route:parseRoute(a.route_geojson),startedAt:new Date(a.started_at),syncStatus:'synced',title:a.title}));
+      const cloud=((data??[]) as Row[]).map((a):UserActivity=>({activityType:a.activity_type,averageSpeedKmh:Number(a.average_speed_kmh),distanceKm:Number(a.distance_km),durationSeconds:a.duration_seconds,endedAt:new Date(a.ended_at),groupActivityId:a.group_activity_id,id:a.id,cloudId:a.id,route:parseRouteGeometry(a.route_geojson),startedAt:new Date(a.started_at),syncStatus:'synced',title:a.title}));
       const merged=new Map(local.map(a=>[a.id,a]));
       cloud.forEach(a=>merged.set(a.id,{...a,localId:merged.get(a.id)?.localId}));
       setState({owner,activities:[...merged.values()].sort((a,b)=>b.startedAt.getTime()-a.startedAt.getTime()),error:error?'No pudimos cargar el respaldo en la nube. Tus recorridos locales siguen disponibles.':null,isLoading:false});

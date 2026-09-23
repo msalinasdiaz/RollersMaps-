@@ -1,11 +1,13 @@
-import { Camera, type CameraRef, GeoJSONSource, Layer, Map, ViewAnnotation } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { InlineSkateIcon } from '@/components/inline-skate-icon';
+import { TrackingMap } from '@/components/tracking-map';
+import { currentSpeedKmh, formatTrackingTime } from '@/lib/tracking-metrics';
 import { GpsTargetIcon } from '@/components/gps-target-icon';
 import { useDemoSession } from '@/contexts/demo-session';
 import { activityTypeLabels, getActivityTiming } from '@/data/activities';
@@ -13,6 +15,10 @@ import { useActivities } from '@/hooks/use-activities';
 import { syncLocalActivities } from '@/lib/local-sync';
 import {
   archiveTrackingSession,
+  clearLocalTrackingSession,
+  pauseLocalTrackingSession,
+  resumeLocalTrackingSession,
+  setTrackingTitle,
   flushLocationQueue,
   getTrackingSnapshot,
   markTrackingPendingSave,
@@ -33,8 +39,6 @@ type TrackingOption = {
   title: string;
 };
 
-const defaultCenter: MapCoordinate = { latitude: -33.4324, longitude: -70.6498 };
-const mapStyleUrl = 'https://tiles.openfreemap.org/styles/dark';
 const locationTimeoutMs = 12_000;
 const freeOption: TrackingOption = { groupActivityId: null, id: 'free', kind: 'free', meta: 'Salida personal', title: 'Ruta libre' };
 
@@ -47,14 +51,17 @@ export default function TrackScreen() {
 function Tracker({ ownerId }: { ownerId: string }) {
   const params = useLocalSearchParams<{ activityId?: string }>();
   const requestedActivityId = Array.isArray(params.activityId) ? params.activityId[0] : params.activityId;
-  const { isJoined, notifyRecordedActivitySaved, user } = useDemoSession();
+  const { isJoined, notifyRecordedActivitySaved } = useDemoSession();
   const { activities, isLoading: activitiesLoading } = useActivities(true);
   const [userLocation, setUserLocation] = useState<MapCoordinate | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [snapshot, setSnapshot] = useState<TrackingSnapshot | null>(null);
-  const [lastCompletedSnapshot, setLastCompletedSnapshot] = useState<TrackingSnapshot | null>(null);
-  const [message, setMessage] = useState('Toca Inicio para preparar el GPS.');
+  const [viewMode,setViewMode]=useState<'stats'|'map'>('map');
+  const [reviewing,setReviewing]=useState(false);
+  const [draftTitle,setDraftTitle]=useState('');
+  const actionRef=useRef(false);
+  const [message, setMessage] = useState('Toca Iniciar recorrido para preparar el GPS.');
   const [referenceTime, setReferenceTime] = useState(() => new Date());
   const [recenterRequest, setRecenterRequest] = useState(0);
   const locationRequestRef = useRef(false);
@@ -73,22 +80,20 @@ function Tracker({ ownerId }: { ownerId: string }) {
   } : freeOption;
   const timing = requestedActivity ? getActivityTiming(requestedActivity, referenceTime) : null;
   const isTracking = snapshot?.status === 'active';
+  const isPaused = snapshot?.status === 'paused';
   const isPendingSave = snapshot?.status === 'pending_save';
-  const isEventLocked = Boolean(!isTracking && !isPendingSave && requestedActivity && !timing?.canStart);
+  const isEventLocked = Boolean(!snapshot && requestedActivity && !timing?.canStart);
   const eventHasEnded = Boolean(requestedActivity && timing?.hasEnded);
-  const displayedSnapshot = snapshot ?? lastCompletedSnapshot;
+  const displayedSnapshot = snapshot;
   const elapsedSeconds = displayedSnapshot?.durationSeconds ?? 0;
   const distanceKm = displayedSnapshot?.distanceKm ?? 0;
   const averageSpeed = displayedSnapshot?.averageSpeedKmh ?? 0;
   const storedRoute = displayedSnapshot?.route;
   const trackedRoute = useMemo(
-    () => storedRoute?.map(({ latitude, longitude }) => ({ latitude, longitude })) ?? [],
+    () => storedRoute ?? [],
     [storedRoute],
   );
   const displayTitle = displayedSnapshot?.title ?? selectedOption.title;
-  const displayMeta = displayedSnapshot
-    ? `${displayedSnapshot.activityType === 'group_activity' ? 'Actividad del grupo' : 'Salida personal'} · ${snapshot?.status === 'active' ? 'registro activo' : snapshot?.status === 'pending_save' ? 'pendiente de guardar' : 'registro finalizado'}`
-    : selectedOption.meta;
 
   useEffect(() => {
     const interval = setInterval(() => setReferenceTime(new Date()), 30_000);
@@ -117,13 +122,19 @@ function Tracker({ ownerId }: { ownerId: string }) {
         setRecenterRequest((current) => current + 1);
       }
       if (localSnapshot.status === 'active') {
+        setViewMode('stats');
         try {
           await startActiveLocationService();
           if (isMounted) setMessage('Recuperamos tu ruta. El GPS sigue registrando en segundo plano.');
         } catch {
-          if (isMounted) setMessage('Recuperamos tu ruta, pero debes reactivar el permiso de ubicación para continuar.');
+          await flushLocationQueue();
+          pauseLocalTrackingSession(ownerId);
+          if (isMounted) { setSnapshot(getTrackingSnapshot(ownerId)); setMessage('Recuperamos tu ruta en pausa. Revisa el permiso de ubicación y reanuda.'); }
         }
+      } else if (localSnapshot.status === 'paused' && isMounted) {
+        setViewMode('stats');setMessage('Tu recorrido sigue en pausa. Reanuda cuando quieras continuar.');
       } else if (isMounted) {
+        setDraftTitle(localSnapshot.title);
         setMessage('Tu recorrido está seguro en este teléfono. Toca Guardar para finalizar.');
       }
     };
@@ -207,293 +218,141 @@ function Tracker({ ownerId }: { ownerId: string }) {
     return true;
   }, []);
 
-  const saveSnapshot = useCallback(async (localSnapshot: TrackingSnapshot) => {
-    setIsSaving(true);
-    try {
-      archiveTrackingSession(localSnapshot);
-      setLastCompletedSnapshot(localSnapshot);
-      setSnapshot(null);
-      notifyRecordedActivitySaved();
-      setMessage('Recorrido guardado en este teléfono. Encuéntralo en Mis rutas.');
-      if (user && localSnapshot.userId === user.id) {
-        const error = await syncLocalActivities(user.id);
-        setMessage(error ?? 'Recorrido guardado y respaldado en tu cuenta.');
-        notifyRecordedActivitySaved();
-      }
-      return true;
-    } catch {
-      setMessage('No pudimos completar el guardado. Tu registro sigue disponible para reintentar.');
-      return false;
-    } finally { setIsSaving(false); }
-  }, [notifyRecordedActivitySaved, user]);
-
-  const toggleTracking = async () => {
-    if (isLocating || isSaving || isEventLocked) return;
-    if (isPendingSave && snapshot) {
-      await saveSnapshot(snapshot);
-      return;
-    }
-
-    if (isTracking) {
-      setIsSaving(true);
-      try { await stopActiveLocationService(); } catch { /* The local session still prevents new points. */ }
-      await flushLocationQueue();
-      markTrackingPendingSave();
-      const finalSnapshot = getTrackingSnapshot(ownerId);
-      setSnapshot(finalSnapshot);
-      setIsSaving(false);
-      setMessage('Guardando tu actividad…');
-      if (finalSnapshot) await saveSnapshot(finalSnapshot);
-      return;
-    }
-
-
-    const initialLocation = await getDeviceLocation();
-    if (!initialLocation) return;
-    if (!await ensureBackgroundPermission()) {
-      setMessage('Necesitamos ubicación en segundo plano para evitar que tu ruta se corte.');
-      return;
-    }
-
-    if (!screenMountedRef.current) return;
-    try {
-    startLocalTrackingSession({
-      activityType: selectedOption.kind === 'group' ? 'group_activity' : 'free_route',
-      groupActivityId: selectedOption.groupActivityId,
-      initialLocation,
-      title: selectedOption.title,
-      userId: ownerId,
-    });
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'No pudimos iniciar el recorrido.'); return; }
-    const localSnapshot = getTrackingSnapshot(ownerId);
-    setSnapshot(localSnapshot);
-    setLastCompletedSnapshot(null);
-    setMessage('Ruta en curso. Puedes apagar la pantalla o dejar la app en segundo plano.');
-    try {
+  const runAction = async (action: () => Promise<void>) => {
+    if (actionRef.current) return;
+    actionRef.current=true;setIsSaving(true);
+    try { await action(); }
+    catch(error) { setMessage(error instanceof Error ? error.message : 'No pudimos completar la acción. Tu recorrido sigue en este teléfono.'); }
+    finally {actionRef.current=false;setIsSaving(false);}
+  };
+  const pause = () => runAction(async()=>{
+    try { await stopActiveLocationService(); } catch { /* Persisting the pause also rejects late points. */ }
+    await flushLocationQueue();
+    pauseLocalTrackingSession(ownerId);
+    setSnapshot(getTrackingSnapshot(ownerId));setMessage('En pausa. El tiempo y la distancia están detenidos.');
+  });
+  const startOrResume = () => runAction(async()=>{
+    if(isEventLocked)return;
+    const location=await getDeviceLocation();
+    if(!location || !await ensureBackgroundPermission() || !screenMountedRef.current)return;
+    if(isPaused) resumeLocalTrackingSession(ownerId,location);
+    else startLocalTrackingSession({activityType:selectedOption.kind==='group'?'group_activity':'free_route',groupActivityId:selectedOption.groupActivityId,initialLocation:location,title:selectedOption.kind==='group'?selectedOption.title:'Patinaje en línea',userId:ownerId});
+    setSnapshot(getTrackingSnapshot(ownerId));setViewMode('stats');
+    try{
       await startActiveLocationService();
-    } catch {
-      markTrackingPendingSave();
-      setSnapshot(getTrackingSnapshot(ownerId));
-      setMessage('No pudimos mantener el GPS activo. Puedes guardar el registro y revisar los permisos.');
+      setMessage('GPS activo. El recorrido continúa con la pantalla apagada.');
+    }catch{
+      await flushLocationQueue();pauseLocalTrackingSession(ownerId);setSnapshot(getTrackingSnapshot(ownerId));
+      setMessage('Dejamos el recorrido en pausa. Revisa los permisos y reanuda.');
     }
+  });
+  const review = () => {
+    if(!snapshot || isTracking || isSaving)return;
+    setDraftTitle(snapshot.title);setReviewing(true);
   };
-
-  const goBack = () => {
-    if (isTracking) { Alert.alert('Ruta en curso', 'Finaliza y guarda la actividad antes de volver.'); return; }
-    router.back();
-  };
-
-  if (requestedActivityId && activitiesLoading && !snapshot) return <LoadingScreen />;
-  if (requestedActivityId && !requestedActivity && !snapshot) return <View style={[styles.screen, { justifyContent: 'center', padding: 24, gap: 20 }]}><Text style={{ color: '#FFFFFF', fontSize: 18 }}>Esta actividad no está disponible para tu cuenta.</Text><Pressable accessibilityRole="button" onPress={() => router.replace('/track')}><Text style={{ color: '#FF9A45', fontSize: 17 }}>Patinar libre</Text></Pressable></View>;
-
-  return (
-    <View style={styles.screen}>
-      <StatusBar style="light" />
-      <TrackerMap recenterRequest={recenterRequest} trackedRoute={trackedRoute} userLocation={userLocation} />
-      <SafeAreaView edges={['top', 'bottom']} pointerEvents="box-none" style={styles.overlay}>
-        <View style={styles.topBar} pointerEvents="box-none">
-          <Pressable accessibilityLabel="Volver" accessibilityRole="button" onPress={goBack} style={styles.roundControl}><Text style={styles.backIcon}>‹</Text></Pressable>
-          <View style={[styles.statusPill, (isTracking || isPendingSave) && styles.statusPillActive]}><View style={[styles.statusDot, isTracking && styles.statusDotActive]} /><Text style={styles.statusText}>{isTracking ? 'EN CURSO' : isPendingSave ? 'POR GUARDAR' : 'LISTA'}</Text></View>
+  const save = () => runAction(async()=>{
+    setTrackingTitle(ownerId,draftTitle);
+    if(!isPendingSave)markTrackingPendingSave();
+    const final=getTrackingSnapshot(ownerId);
+    if(!final)return;
+    setSnapshot(final);
+    archiveTrackingSession(final);
+    notifyRecordedActivitySaved();
+    void syncLocalActivities(ownerId).then(()=>notifyRecordedActivitySaved()).catch(()=>undefined);
+    router.replace({pathname:'/my-activities',params:{record:final.recordId}});
+  });
+  const discard = () => Alert.alert('Descartar recorrido','Se eliminará únicamente este recorrido sin guardar.',[
+    {text:'Volver',style:'cancel'},
+    {text:'Descartar',style:'destructive',onPress:()=>void runAction(async()=>{
+      if(getTrackingSnapshot(ownerId)?.userId!==ownerId)return;
+      try{await stopActiveLocationService();}catch{}
+      await flushLocationQueue();clearLocalTrackingSession();router.back();
+    })},
+  ]);
+  const goBack = () => router.back();
+  const completedReview=reviewing||isPendingSave;
+  const showMap=viewMode==='map'||completedReview;
+  const busy=isSaving||isLocating;
+  const currentSpeed=currentSpeedKmh(snapshot);
+  if(requestedActivityId&&activitiesLoading&&!snapshot)return <LoadingScreen/>;
+  if(requestedActivityId&&!requestedActivity&&!snapshot)return <View style={styles.required}><Text style={styles.body}>Esta actividad no está disponible para tu cuenta.</Text><Pressable onPress={()=>router.replace('/track')}><Text style={styles.link}>Patinar libre</Text></Pressable></View>;
+  return <View style={styles.screen}>
+    <StatusBar style={isPaused&&!completedReview?'dark':'light'}/>
+    {showMap?<TrackingMap route={trackedRoute} location={userLocation} recenterRequest={recenterRequest} overview={completedReview} bottomInset={completedReview?360:290}/>:null}
+    <SafeAreaView edges={['top','bottom']} style={styles.overlay} pointerEvents="box-none">
+      <View style={[styles.header,isPaused&&!completedReview&&styles.pausedHeader]}>
+        <View style={styles.topRow}>
+          <Pressable accessibilityRole="button" accessibilityLabel={completedReview?'Volver al recorrido':'Volver'} onPress={completedReview?()=>setReviewing(false):goBack} disabled={busy||isPendingSave} style={styles.smallButton}>
+            <Text style={[styles.link,isPaused&&!completedReview&&styles.darkText]}>{completedReview?'Volver':'‹ Volver'}</Text>
+          </Pressable>
+          <View style={styles.sport}><InlineSkateIcon size={23} color={isPaused&&!completedReview?'#161616':'#FF9A45'}/><Text style={[styles.sportText,isPaused&&!completedReview&&styles.darkText]}>Patinaje en línea</Text></View>
+          {!completedReview?<Pressable accessibilityRole="button" onPress={()=>setViewMode(showMap?'stats':'map')} style={styles.smallButton}><Text style={[styles.link,isPaused&&styles.darkText]}>{showMap?'Datos':'Mapa'}</Text></Pressable>:<View style={{width:50}}/>}
         </View>
-
-        <View style={styles.lowerDock}>
-          <View style={styles.metricsCard}>
-            <View style={styles.metricsHeader}>
-              <View style={styles.metricsHeading}>
-                <Text numberOfLines={1} style={styles.metricsTitle}>{displayTitle}</Text>
-                <Text numberOfLines={1} style={styles.metricsMeta}>{displayMeta}</Text>
-              </View>
-              <Text style={styles.expandIcon}>↗</Text>
-            </View>
-            <View style={styles.statsRow}>
-              <Metric label="Duración" value={formatDuration(elapsedSeconds)} />
-              <Metric label="Veloc. media" suffix="km/h" value={formatDecimal(averageSpeed)} />
-              <Metric label="Distancia" suffix="km" value={formatDistance(distanceKm)} />
-            </View>
-            <Text accessibilityLiveRegion="polite" numberOfLines={2} style={styles.message}>{eventHasEnded ? 'Esta actividad ya finalizó.' : isEventLocked && requestedActivity ? `Se habilita a partir de las ${requestedActivity.time}.` : message}</Text>
+        <Text style={[styles.status,isPaused&&!completedReview&&styles.darkText]}>{completedReview?'RESUMEN DEL RECORRIDO':isPaused?'EN PAUSA':isTracking?'EN CURSO':'LISTO PARA PATINAR'}</Text>
+        {!completedReview?<Text style={[styles.timer,isPaused&&styles.darkText]}>{formatTrackingTime(elapsedSeconds)}</Text>:null}
+      </View>
+      {completedReview?<View style={styles.reviewDock}>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{gap:16}} style={{maxHeight:240}}>
+          <Text style={styles.reviewTitle}>Guardar actividad</Text>
+          <TextInput accessibilityLabel="Nombre del recorrido" value={draftTitle} onChangeText={setDraftTitle} maxLength={60} style={styles.titleInput}/>
+          <View style={styles.compactStats}><Metric label="Distancia · km" value={formatDistance(distanceKm)}/><Metric label="Tiempo activo" value={formatTrackingTime(elapsedSeconds)}/><Metric label="Media · km/h" value={formatDecimal(averageSpeed)}/></View>
+          <Text style={styles.body}>El tiempo en pausa queda fuera del resumen. Tu recorrido se guarda aunque no tengas conexión.</Text>
+          <Text accessibilityLiveRegion="polite" style={styles.message}>{message}</Text>
+        </ScrollView>
+        <View style={styles.actions}><ActionButton label={busy?'Guardando…':'Guardar actividad'} disabled={busy} onPress={()=>void save()}/></View>
+        <Pressable accessibilityRole="button" disabled={busy} onPress={discard} style={styles.discard}><Text style={styles.muted}>Descartar recorrido</Text></Pressable>
+      </View>:<>
+        {!showMap?<View style={styles.largeStats}>
+          <BigMetric label={isPaused?'Velocidad media · km/h':'Velocidad · km/h'} value={formatDecimal(isPaused?averageSpeed:currentSpeed)}/>
+          <BigMetric label="Distancia · km" value={formatDistance(distanceKm)}/>
+        </View>:<View style={{flex:1}} pointerEvents="none"/>}
+        <View style={styles.bottomDock}>
+          {showMap?<View style={styles.mapStats}>
+            <Text style={styles.activityTitle} numberOfLines={1}>{displayTitle}</Text>
+            <View style={styles.compactStats}><Metric label="Velocidad · km/h" value={formatDecimal(currentSpeed)}/><Metric label="Distancia · km" value={formatDistance(distanceKm)}/><Metric label="Media · km/h" value={formatDecimal(averageSpeed)}/></View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Centrar en mi ubicación" onPress={()=>void getDeviceLocation()} disabled={busy} style={styles.recenter}><GpsTargetIcon size={20}/><Text style={styles.link}>Centrar mapa</Text></Pressable>
+          </View>:null}
+          <Text accessibilityLiveRegion="polite" style={styles.message}>{eventHasEnded&&!snapshot?'Esta actividad ya finalizó.':isEventLocked&&requestedActivity?'El registro se habilita a las '+requestedActivity.time+'.':message}</Text>
+          <View style={styles.actions}>
+            {isTracking?<ActionButton label={busy?'Pausando…':'Ⅱ  Pausar'} disabled={busy} onPress={()=>void pause()}/>:isPaused?<>
+              <ActionButton label={busy?'Preparando…':'▶  Reanudar'} disabled={busy} onPress={()=>void startOrResume()}/>
+              <ActionButton label="⚑  Finalizar" secondary disabled={busy} onPress={review}/>
+            </>:<ActionButton label={busy?'Preparando GPS…':'▶  Iniciar recorrido'} disabled={busy||isEventLocked} onPress={()=>void startOrResume()}/>}
           </View>
-
-          <View style={styles.actionDock}>
-            <View style={styles.sideAction}>
-              <View style={[styles.sideCircle, styles.modeCircle]}><Text style={styles.modeIcon}>≋</Text></View>
-              <Text numberOfLines={2} style={styles.sideLabel}>{selectedOption.kind === 'group' ? 'Actividad\ndel grupo' : 'Patinaje\nen línea'}</Text>
-            </View>
-            <Pressable
-              accessibilityLabel={isTracking ? 'Finalizar y guardar actividad' : isPendingSave ? 'Reintentar guardar actividad' : isEventLocked && requestedActivity ? `Registro disponible desde las ${requestedActivity.time}` : 'Iniciar registro GPS'}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: isLocating || isSaving || isEventLocked, selected: isTracking }}
-              disabled={isLocating || isSaving || isEventLocked}
-              onPress={() => void toggleTracking()}
-              style={[styles.centerAction, (isLocating || isSaving || isEventLocked) && styles.disabled]}>
-              <View style={[styles.primaryCircle, isTracking && styles.primaryCircleStop]}>
-                {isLocating || isSaving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryIcon}>{isTracking ? '■' : '▶'}</Text>}
-              </View>
-              <Text numberOfLines={1} style={styles.centerLabel}>{isSaving ? 'Guardando…' : isLocating ? 'Preparando…' : isTracking ? 'Finalizar' : isPendingSave ? 'Reintentar guardado' : eventHasEnded ? 'Finalizada' : isEventLocked && requestedActivity ? `Desde ${requestedActivity.time}` : trackedRoute.length ? 'Nueva actividad' : 'Inicio'}</Text>
-            </Pressable>
-            <Pressable accessibilityLabel="Centrar en mi ubicación" accessibilityRole="button" disabled={isLocating || isSaving} onPress={() => void getDeviceLocation()} style={[styles.sideAction, (isLocating || isSaving) && styles.disabled]}>
-              <View style={styles.sideCircle}><GpsTargetIcon color="#FFFFFF" size={27} /></View>
-              <Text numberOfLines={2} style={styles.sideLabel}>{'Centrar\nmapa'}</Text>
-            </Pressable>
-          </View>
-          <Text style={styles.privacy}>El registro continúa en segundo plano mientras veas la notificación de RollersMaps.</Text>
+          {!isTracking&&!isPaused?<Text style={styles.hint}>El GPS comienza cuando tocas Iniciar recorrido.</Text>:null}
         </View>
-      </SafeAreaView>
-    </View>
-  );
+      </>}
+    </SafeAreaView>
+  </View>;
 }
 
-function TrackerMap({
-  recenterRequest,
-  trackedRoute,
-  userLocation,
-}: {
-  recenterRequest: number;
-  trackedRoute: MapCoordinate[];
-  userLocation: MapCoordinate | null;
-}) {
-  const [mapLoadState, setMapLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const cameraRef = useRef<CameraRef>(null);
-  const lastHandledRecenterRequest = useRef(0);
-  const trackedRouteFeature = {
-    type: 'Feature' as const,
-    properties: {},
-    geometry: {
-      type: 'LineString' as const,
-      coordinates: trackedRoute.map((coordinate) => [coordinate.longitude, coordinate.latitude]),
-    },
-  };
-
-  useEffect(() => {
-    if (mapLoadState !== 'ready' || !userLocation || recenterRequest === 0 || recenterRequest === lastHandledRecenterRequest.current) return;
-    lastHandledRecenterRequest.current = recenterRequest;
-    cameraRef.current?.easeTo({
-      center: [userLocation.longitude, userLocation.latitude],
-      duration: 450,
-      zoom: 16,
-    });
-  }, [mapLoadState, recenterRequest, userLocation]);
-
-  return (
-    <View style={StyleSheet.absoluteFill}>
-      <Map
-        androidView="texture"
-        attribution
-        attributionPosition={{ bottom: 270, left: 8 }}
-        compass
-        compassPosition={{ top: 76, right: 14 }}
-        logo={false}
-        mapStyle={mapStyleUrl}
-        onDidFailLoadingMap={() => setMapLoadState('error')}
-        onDidFinishLoadingMap={() => setMapLoadState('ready')}
-        onWillStartLoadingMap={() => setMapLoadState('loading')}
-        style={StyleSheet.absoluteFill}
-      >
-        <Camera initialViewState={{ center: [defaultCenter.longitude, defaultCenter.latitude], zoom: 12 }} ref={cameraRef} />
-        {trackedRoute.length > 1 ? (
-          <GeoJSONSource data={trackedRouteFeature} id="active-roller-track">
-            <Layer
-              id="active-roller-track-glow"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': '#512BFF', 'line-opacity': 0.35, 'line-width': 13 }}
-              type="line"
-            />
-            <Layer
-              id="active-roller-track-line"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': '#7B61FF', 'line-opacity': 1, 'line-width': 5 }}
-              type="line"
-            />
-          </GeoJSONSource>
-        ) : null}
-        {userLocation ? (
-          <ViewAnnotation id="active-user-location" lngLat={[userLocation.longitude, userLocation.latitude]}>
-            <View style={styles.mapUserMarker}><View style={styles.mapUserMarkerCenter} /></View>
-          </ViewAnnotation>
-        ) : null}
-      </Map>
-      {mapLoadState !== 'ready' ? (
-        <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.mapLoading]}>
-          {mapLoadState === 'loading' ? <ActivityIndicator color="#FF7900" size="large" /> : null}
-          <Text style={styles.mapLoadingText}>{mapLoadState === 'error' ? 'No pudimos cargar el mapa. Revisa tu conexión.' : 'Cargando el mapa…'}</Text>
-        </View>
-      ) : null}
-    </View>
-  );
+function ActionButton({label,onPress,disabled=false,secondary=false}:{label:string;onPress:()=>void;disabled?:boolean;secondary?:boolean}){
+  return <Pressable accessibilityRole="button" accessibilityState={{disabled}} disabled={disabled} onPress={onPress} style={[styles.action,secondary&&styles.secondaryAction,disabled&&{opacity:.5}]}><Text style={[styles.actionText,secondary&&styles.darkText]}>{label}</Text></Pressable>;
 }
-
-function Metric({ label, suffix, value }: { label: string; suffix?: string; value: string }) {
-  return (
-    <View style={styles.metric}>
-      <Text numberOfLines={1} style={styles.metricValue}>{value}</Text>
-      <Text numberOfLines={1} style={styles.metricLabel}>{label}{suffix ? ` · ${suffix}` : ''}</Text>
-    </View>
-  );
-}
-
-function LoadingScreen() {
-  return <View style={styles.required}><ActivityIndicator color="#FF7900" size="large" /><Text style={styles.requiredText}>Preparando tu actividad…</Text></View>;
-}
-
-
-function formatDuration(seconds: number) {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
-  const remainingSeconds = (seconds % 60).toString().padStart(2, '0');
-  return hours ? `${hours}:${minutes}:${remainingSeconds}` : `${minutes}:${remainingSeconds}`;
-}
-
-function formatDecimal(value: number) {
-  return value.toFixed(1).replace('.', ',');
-}
-
-function formatDistance(value: number) {
-  return value.toFixed(2).replace('.', ',');
-}
-
-const styles = StyleSheet.create({
-  screen: { backgroundColor: '#0B0D12', flex: 1 },
-  overlay: { ...StyleSheet.absoluteFill, justifyContent: 'space-between' },
-  topBar: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14 },
-  roundControl: { alignItems: 'center', backgroundColor: 'rgba(9,10,14,0.94)', borderColor: '#353742', borderRadius: 22, borderWidth: 1, height: 44, justifyContent: 'center', width: 44 },
-  backIcon: { color: '#FFFFFF', fontSize: 35, fontWeight: '500', lineHeight: 37, marginTop: -3 },
-  statusPill: { alignItems: 'center', backgroundColor: 'rgba(9,10,14,0.9)', borderColor: '#343642', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 5, paddingHorizontal: 10, paddingVertical: 9 },
-  statusPillActive: { borderColor: '#FF7900' },
-  statusDot: { backgroundColor: '#7D8490', borderRadius: 4, height: 8, width: 8 },
-  statusDotActive: { backgroundColor: '#7ED957' },
-  statusText: { color: '#FFFFFF', fontSize: 9, fontWeight: '900' },
-  lowerDock: { gap: 8, paddingBottom: 4 },
-  metricsCard: { backgroundColor: 'rgba(13,13,16,0.97)', borderColor: '#353541', borderRadius: 16, borderWidth: 1, marginHorizontal: 8, paddingHorizontal: 14, paddingBottom: 10, paddingTop: 9 },
-  metricsHeader: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between' },
-  metricsHeading: { flex: 1, paddingLeft: 20 },
-  metricsTitle: { color: '#FFFFFF', fontSize: 12, fontWeight: '900', textAlign: 'center' },
-  metricsMeta: { color: '#9EA2AD', fontSize: 8, fontWeight: '700', marginTop: 1, textAlign: 'center' },
-  expandIcon: { color: '#D8DAE1', fontSize: 15, fontWeight: '800' },
-  statsRow: { flexDirection: 'row', marginTop: 7 },
-  metric: { alignItems: 'center', flex: 1, minWidth: 0 },
-  metricValue: { color: '#FFFFFF', fontSize: 24, fontVariant: ['tabular-nums'], fontWeight: '900' },
-  metricLabel: { color: '#B7BAC3', fontSize: 8, fontWeight: '800', marginTop: 2, textAlign: 'center' },
-  message: { color: '#C8CBD3', fontSize: 9, lineHeight: 12, marginTop: 6, minHeight: 12, textAlign: 'center' },
-  actionDock: { alignItems: 'flex-start', backgroundColor: 'rgba(13,13,15,0.98)', borderTopColor: '#2E2E36', borderTopWidth: 1, flexDirection: 'row', justifyContent: 'space-around', paddingBottom: 6, paddingHorizontal: 24, paddingTop: 9 },
-  sideAction: { alignItems: 'center', minWidth: 74 },
-  sideCircle: { alignItems: 'center', backgroundColor: '#3A3A3D', borderRadius: 25, height: 50, justifyContent: 'center', width: 50 },
-  modeCircle: { backgroundColor: '#5A2410' },
-  modeIcon: { color: '#FF7900', fontSize: 30, fontWeight: '900', lineHeight: 31 },
-  sideLabel: { color: '#E3E3E7', fontSize: 8.5, lineHeight: 11, marginTop: 4, textAlign: 'center' },
-  centerAction: { alignItems: 'center', marginTop: -3, minWidth: 96 },
-  primaryCircle: { alignItems: 'center', backgroundColor: '#FF6300', borderColor: '#FF8C3A', borderRadius: 33, borderWidth: 1, elevation: 6, height: 66, justifyContent: 'center', shadowColor: '#FF6300', shadowOffset: { height: 3, width: 0 }, shadowOpacity: 0.28, shadowRadius: 7, width: 66 },
-  primaryCircleStop: { backgroundColor: '#E84929', borderColor: '#FF765A' },
-  primaryIcon: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', marginLeft: 2 },
-  centerLabel: { color: '#FF7900', fontSize: 9, fontWeight: '900', marginTop: 4, textAlign: 'center' },
-  disabled: { opacity: 0.58 },
-  privacy: { backgroundColor: 'rgba(13,13,15,0.98)', color: '#7F828C', fontSize: 8, lineHeight: 11, marginTop: -8, paddingBottom: 2, textAlign: 'center' },
-  mapLoading: { alignItems: 'center', backgroundColor: '#0B0A16', gap: 12, justifyContent: 'center' },
-  mapLoadingText: { color: '#E5E7EB', fontSize: 12, fontWeight: '800', paddingHorizontal: 32, textAlign: 'center' },
-  mapUserMarker: { alignItems: 'center', backgroundColor: 'rgba(74,123,255,0.25)', borderRadius: 22, height: 44, justifyContent: 'center', width: 44 },
-  mapUserMarkerCenter: { backgroundColor: '#447BFF', borderColor: '#FFFFFF', borderRadius: 12, borderWidth: 3, height: 24, width: 24 },
-  required: { alignItems: 'center', backgroundColor: '#0B0D12', flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
-  requiredIcon: { color: '#FF7900', fontSize: 34, fontWeight: '900', letterSpacing: 3 },
-  requiredTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', marginTop: 18, textAlign: 'center' },
-  requiredText: { color: '#B8BEC8', fontSize: 13, lineHeight: 19, marginTop: 10, textAlign: 'center' },
-  requiredButton: { backgroundColor: '#FF7900', borderRadius: 25, marginTop: 24, minWidth: 190, paddingHorizontal: 24, paddingVertical: 15 },
-  requiredButtonText: { color: '#111111', fontSize: 14, fontWeight: '900', textAlign: 'center' },
+function Metric({label,value}:{label:string;value:string}){return <View style={styles.metric}><Text adjustsFontSizeToFit numberOfLines={1} style={styles.metricValue}>{value}</Text><Text style={styles.metricLabel}>{label}</Text></View>;}
+function BigMetric({label,value}:{label:string;value:string}){return <View style={styles.bigMetric}><Text adjustsFontSizeToFit numberOfLines={1} style={styles.bigValue}>{value}</Text><Text style={styles.bigLabel}>{label}</Text></View>;}
+function LoadingScreen(){return <View style={styles.required}><ActivityIndicator color="#FF9A45"/><Text style={styles.body}>Preparando tu actividad…</Text></View>;}
+function formatDecimal(value:number){return value.toFixed(1).replace('.',',');}
+function formatDistance(value:number){return value.toFixed(2).replace('.',',');}
+const styles=StyleSheet.create({
+  screen:{flex:1,backgroundColor:'#101010'},overlay:{flex:1,justifyContent:'space-between'},
+  header:{backgroundColor:'#101010EE',paddingHorizontal:16,paddingTop:4,paddingBottom:16},
+  pausedHeader:{backgroundColor:'#FFD044'},topRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:8},
+  smallButton:{minHeight:44,minWidth:50,justifyContent:'center'},link:{color:'#FF9A45',fontSize:14,fontWeight:'700'},
+  sport:{flexDirection:'row',alignItems:'center',gap:7,flexShrink:1},sportText:{color:'#F6F6F6',fontSize:13,fontWeight:'700'},
+  status:{color:'#B3B3BB',fontSize:12,fontWeight:'800',textAlign:'center',letterSpacing:1,marginTop:7},
+  timer:{color:'#FFFFFF',fontSize:42,fontWeight:'800',fontVariant:['tabular-nums'],textAlign:'center',marginTop:4},
+  darkText:{color:'#151515'},largeStats:{flex:1,justifyContent:'space-evenly',paddingHorizontal:28,minHeight:200},
+  bigMetric:{alignItems:'center'},bigValue:{color:'#FFFFFF',fontSize:92,fontWeight:'800',fontVariant:['tabular-nums'],letterSpacing:-3},
+  bigLabel:{color:'#B8B8C1',fontSize:15,marginTop:1},bottomDock:{backgroundColor:'#101010F5',paddingHorizontal:18,paddingBottom:10,paddingTop:12,gap:14},
+  actions:{flexDirection:'row',gap:12},action:{flex:1,backgroundColor:'#FF7900',borderRadius:32,minHeight:56,alignItems:'center',justifyContent:'center',paddingHorizontal:16,paddingVertical:14},
+  secondaryAction:{backgroundColor:'#FFFFFF'},actionText:{color:'#101010',fontSize:17,fontWeight:'800',textAlign:'center'},
+  hint:{color:'#8E8E99',fontSize:12,textAlign:'center'},message:{color:'#B9BAC3',fontSize:13,lineHeight:18,textAlign:'center'},
+  mapStats:{gap:12},activityTitle:{color:'#FFFFFF',fontSize:16,fontWeight:'700',textAlign:'center'},
+  compactStats:{flexDirection:'row',gap:6},metric:{flex:1,alignItems:'center'},metricValue:{color:'#FFFFFF',fontSize:22,fontWeight:'800',fontVariant:['tabular-nums']},
+  metricLabel:{color:'#A6A6B0',fontSize:11,textAlign:'center',marginTop:4},recenter:{alignSelf:'center',flexDirection:'row',alignItems:'center',gap:8,minHeight:40},
+  reviewDock:{backgroundColor:'#141414',borderTopLeftRadius:24,borderTopRightRadius:24,padding:22,gap:16},
+  reviewTitle:{color:'#FFFFFF',fontSize:23,fontWeight:'800'},titleInput:{color:'#FFFFFF',borderColor:'#4B4B55',borderWidth:1,borderRadius:10,padding:12,fontSize:16},
+  body:{color:'#B5B5BE',fontSize:14,lineHeight:20},muted:{color:'#A8A8B0',fontSize:14},discard:{alignItems:'center',padding:6,minHeight:32},
+  required:{flex:1,backgroundColor:'#101010',alignItems:'center',justifyContent:'center',padding:24,gap:20},
 });

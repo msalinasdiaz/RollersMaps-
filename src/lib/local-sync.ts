@@ -1,3 +1,4 @@
+import { routeGeometry } from '@/lib/route-geometry';
 import { supabase } from '@/lib/supabase';
 import { claimLocalActivity, getLocalActivities, markLocalActivitySynced, GUEST_OWNER } from '@/lib/tracking-store';
 
@@ -23,7 +24,7 @@ async function sync(userId: string, includeGuests: boolean): Promise<string | nu
       group_activity_id: s.groupActivityId, started_at: new Date(s.startedAt).toISOString(),
       ended_at: new Date(s.endedAt ?? s.startedAt).toISOString(), duration_seconds: s.durationSeconds,
       distance_km: s.distanceKm, average_speed_kmh: s.averageSpeedKmh, source: 'rollersmaps', sync_status: 'not_connected',
-      route_geojson: s.route.length > 1 ? { type: 'LineString', coordinates: s.route.map((p) => [p.longitude, p.latitude]) } : null,
+      route_geojson: routeGeometry(s.route),
     }, { onConflict: 'user_id,client_record_id' }).select('id').single();
     if (error || !data) return 'No pudimos respaldar en la nube. Tus recorridos siguen guardados en este teléfono.';
     markLocalActivitySynced(s.recordId, userId, data.id);

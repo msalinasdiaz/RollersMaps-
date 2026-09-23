@@ -1,10 +1,12 @@
 # Versiones de RollersMaps
 
-Actualizado el 22 de septiembre de 2026.
+Actualizado el 23 de septiembre de 2026.
 
-**Avance actual: 1.4.0, revisión 24 — todos los grupos y solicitudes visibles para la administración general.**
+**Avance actual: 1.4.0, revisión 25 — nueva presentación del GPS, pausas persistentes y detalle del recorrido.**
 
-[Ver cambios y validación](docs/VALIDACION-REVISION-24.md). La última etiqueta publicada sigue siendo beta.2.
+[Ver cambios y validación](docs/VALIDACION-REVISION-25.md). [Plan de registro público y Google Maps](docs/PLAN-REGISTRO-Y-GOOGLE-MAPS.md). La última etiqueta publicada sigue siendo beta.2.
+
+La revisión 24 conserva el arreglo de administración general: [registro anterior](docs/VALIDACION-REVISION-24.md).
 
 **Última etiqueta publicada: [v1.4.0-beta.2](https://github.com/msalinasdiaz/RollersMaps-/tree/v1.4.0-beta.2) — registro obligatorio.**
 **Base estable Android: [v1.3.3](https://github.com/msalinasdiaz/RollersMaps-/tree/v1.3.3).**
@@ -26,7 +28,7 @@ Las versiones beta son avances de prueba y no una publicación en tiendas.
 No se creó una etiqueta 1.3.1 porque no hay un punto de entrega identificado con
 esa versión en este historial.
 
-## Cambios del avance actual
+## Cambios de la última etiqueta beta.2
 
 Comparación de [beta.1 con beta.2](https://github.com/msalinasdiaz/RollersMaps-/compare/v1.4.0-beta.1...v1.4.0-beta.2):
 
@@ -39,7 +41,7 @@ Comparación de [beta.1 con beta.2](https://github.com/msalinasdiaz/RollersMaps-
 - Se activaron las migraciones de Supabase con respaldo previo, ensayo sobre
   una copia restaurada y comprobación de conservación y permisos.
 
-El APK conserva versión interna 1.4.0 y revisión 22. La etiqueta beta.2 identifica
+El APK correspondiente a beta.2 conserva versión interna 1.4.0 y revisión 22. La etiqueta beta.2 identifica
 este avance de prueba; no cambia el instalador que ya fue compilado y validado.
 
 Detalles: [manual](docs/MANUAL-1.4.0.md) e

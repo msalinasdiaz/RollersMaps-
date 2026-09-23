@@ -1,8 +1,8 @@
 import { Camera, GeoJSONSource, Layer, Map, ViewAnnotation } from '@maplibre/maplibre-react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { StatusBar } from 'expo-status-bar';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,6 +20,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { captureRef } from 'react-native-view-shot';
 
+import { TrackingMap } from '@/components/tracking-map';
+import { InlineSkateIcon } from '@/components/inline-skate-icon';
+import { formatTrackingTime } from '@/lib/tracking-metrics';
+import { routeGeometry } from '@/lib/route-geometry';
 import { Button, Notice, ui } from '@/components/community-ui';
 import { activityTypeLabels, type AppActivity } from '@/data/activities';
 import { useDemoSession } from '@/contexts/demo-session';
@@ -54,6 +58,16 @@ export default function MyActivitiesScreen() {
   const [isLogoReady, setIsLogoReady] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const shareCardRef = useRef<View>(null);
+  const [detailActivity,setDetailActivity]=useState<UserActivity|null>(null);
+  const {record}=useLocalSearchParams<{record?:string}>();
+  const openedRecord=useRef<string|null>(null);
+  useEffect(()=>{
+    if(!record||openedRecord.current===record)return;
+    const activity=recordedActivities.find(item=>item.localId===record);
+    if(!activity)return;
+    const timer=setTimeout(()=>{openedRecord.current=record;setDetailActivity(activity);},0);
+    return()=>clearTimeout(timer);
+  },[record,recordedActivities]);
 
   const registrations = useMemo(
     () => groupActivities
@@ -85,7 +99,7 @@ export default function MyActivitiesScreen() {
   };
 
   const openShare = (activity: UserActivity) => {
-    if (activity.route.length < 2) {
+    if (!routeGeometry(activity.route)) {
       Alert.alert('Falta el trazado', 'Esta actividad no alcanzó a guardar suficientes puntos GPS para crear el mapa.');
       return;
     }
@@ -172,6 +186,7 @@ export default function MyActivitiesScreen() {
               activities={recordedActivities}
               error={recordedError}
               isLoading={recordedLoading}
+              onView={setDetailActivity}
               onRename={openRename}
               onShare={openShare}
             />
@@ -186,6 +201,7 @@ export default function MyActivitiesScreen() {
         </ScrollView>
       </SafeAreaView>
 
+      {detailActivity?<RecordedDetail activity={detailActivity} onClose={()=>setDetailActivity(null)} onShare={()=>{setDetailActivity(null);openShare(detailActivity);}} onRename={()=>{setDetailActivity(null);openRename(detailActivity);}}/>:null}
       <RenameModal
         activity={editingActivity}
         error={renameError}
@@ -245,10 +261,12 @@ function RecordedList({
   isLoading,
   onRename,
   onShare,
+  onView,
 }: {
   activities: UserActivity[];
   error: string | null;
   isLoading: boolean;
+  onView: (activity: UserActivity) => void;
   onRename: (activity: UserActivity) => void;
   onShare: (activity: UserActivity) => void;
 }) {
@@ -279,11 +297,12 @@ function RecordedList({
               <Metric label="Tiempo" value={`${minutes} min`} />
               <Metric label="Vel. media" value={`${activity.averageSpeedKmh.toFixed(1)} km/h`} />
             </View>
+            <Button secondary onPress={()=>onView(activity)}>Ver recorrido</Button>
             <View style={styles.actions}>
               <Pressable accessibilityRole="button" onPress={() => onRename(activity)} style={styles.secondaryButton}>
                 <Text style={styles.secondaryButtonText}>Renombrar</Text>
               </Pressable>
-              <Pressable accessibilityRole="button" accessibilityState={{ disabled: activity.route.length < 2 }} disabled={activity.route.length < 2} onPress={() => onShare(activity)} style={[styles.shareButton, activity.route.length < 2 && styles.buttonDisabled]}>
+              <Pressable accessibilityRole="button" accessibilityState={{ disabled: !routeGeometry(activity.route) }} disabled={!routeGeometry(activity.route)} onPress={() => onShare(activity)} style={[styles.shareButton, !routeGeometry(activity.route) && styles.buttonDisabled]}>
                 <Text style={styles.shareButtonText}>Compartir</Text>
               </Pressable>
             </View>
@@ -292,6 +311,34 @@ function RecordedList({
       })}
     </View>
   );
+}
+
+function RecordedDetail({activity,onClose,onShare,onRename}:{activity:UserActivity;onClose:()=>void;onShare:()=>void;onRename:()=>void}){
+  const [expanded,setExpanded]=useState(false);
+  return <Modal animationType="slide" onRequestClose={onClose} visible>
+    <SafeAreaView style={{flex:1,backgroundColor:'#101010'}}>
+      <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:18,minHeight:56}}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Cerrar recorrido" onPress={onClose} style={{padding:10}}><Text style={{color:'#FF9A45',fontSize:17}}>‹ Volver</Text></Pressable>
+        <Text style={{color:'#FFFFFF',fontSize:16,fontWeight:'700'}}>Tu recorrido</Text>
+        <Pressable accessibilityRole="button" onPress={()=>setExpanded(!expanded)} style={{padding:10}}><Text style={{color:'#FF9A45',fontSize:14}}>{expanded?'Resumen':'Ampliar'}</Text></Pressable>
+      </View>
+      <View style={expanded?{flex:1}:{height:300}}>
+        {activity.route.length?<TrackingMap route={activity.route} location={null} overview bottomInset={22}/>:<View style={{flex:1,alignItems:'center',justifyContent:'center'}}><Text style={ui.muted}>Este recorrido no tiene trazado GPS.</Text></View>}
+      </View>
+      {!expanded?<ScrollView contentContainerStyle={{padding:22,gap:18}}>
+        <View style={{flexDirection:'row',alignItems:'center',gap:10}}><InlineSkateIcon size={28}/><Text style={{color:'#FF9A45',fontSize:14}}>Patinaje en línea</Text></View>
+        <Text style={{color:'#FFFFFF',fontSize:26,fontWeight:'800'}}>{activity.title}</Text>
+        <Text style={{color:'#A9ABB5',fontSize:14}}>{activity.startedAt.toLocaleString('es-CL')} · {activity.cloudId?'Respaldado en tu cuenta':'Guardado en este teléfono'}</Text>
+        <View style={styles.metrics}>
+          <Metric label="Distancia" value={activity.distanceKm.toFixed(2).replace('.',',')+' km'}/>
+          <Metric label="Tiempo activo" value={formatTrackingTime(activity.durationSeconds)}/>
+          <Metric label="Velocidad media" value={activity.averageSpeedKmh.toFixed(1).replace('.',',')+' km/h'}/>
+        </View>
+        <Button disabled={!routeGeometry(activity.route)} onPress={onShare}>Compartir recorrido</Button>
+        <Button secondary onPress={onRename}>Renombrar</Button>
+      </ScrollView>:null}
+    </SafeAreaView>
+  </Modal>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -417,10 +464,7 @@ function ActivityShareCard({
   const routeFeature = {
     type: 'Feature' as const,
     properties: {},
-    geometry: {
-      type: 'LineString' as const,
-      coordinates: activity.route.map((coordinate) => [coordinate.longitude, coordinate.latitude]),
-    },
+    geometry: routeGeometry(activity.route)!,
   };
   const start = activity.route[0];
   const finish = activity.route.at(-1);
@@ -481,12 +525,7 @@ function ShareMetric({ label, value }: { label: string; value: string }) {
   return <View style={styles.shareMetric}><Text style={styles.shareMetricLabel}>{label}</Text><Text style={styles.shareMetricValue}>{value}</Text></View>;
 }
 
-function formatShareDuration(durationSeconds: number) {
-  const totalMinutes = Math.max(1, Math.round(durationSeconds / 60));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return hours ? `${hours} h ${minutes.toString().padStart(2, '0')} min` : `${minutes} min`;
-}
+function formatShareDuration(durationSeconds: number) { return formatTrackingTime(durationSeconds); }
 
 function MapPin({ label, tone }: { label: string; tone: 'start' | 'finish' }) {
   return <View style={[styles.mapPin, tone === 'start' ? styles.mapPinStart : styles.mapPinFinish]}><Text style={styles.mapPinText}>{label}</Text></View>;
