@@ -30,3 +30,14 @@ Se realizó respaldo, ensayo con reversión y aplicación; cantidades y sumas de
 - SHA256: CEF1AEBA6BCB7055CD960902EEC57446DFD4A949AAAEDF3E6ECFE4DA3A3E3831.
 
 La publicación en tiendas y la instalación en un teléfono físico no forman parte de esta comprobación.
+
+## Publicación web confirmada
+El panel se publicó correctamente el 22 de septiembre de 2026 a las 17:39 (America/Santiago).
+URL: https://rollersmaps-admin.msalinasdiaz.chatgpt.site
+Estado confirmado por Sites: succeeded.
+Código publicado: 502c2c422541a753193777b14989a89576f80c00.
+Versión de Sites: appgprj_6aa5644aa5f08191b2fbd76b825d27f1~appgver_8bff156478ec81918f8d1ea66e1e399b.
+Despliegue: appgdep_6ab2e774705c8191a0c2561ffc52df40.
+La audiencia privada se conservó.
+
+El acceso desde Inicio se comprobó con la sesión real de Manu. Se probaron además los filtros sin aprobar ni rechazar solicitudes reales.
