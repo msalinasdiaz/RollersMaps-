@@ -1,4 +1,5 @@
 import { File } from 'expo-file-system';
+import { router } from 'expo-router';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState } from 'react';
@@ -8,6 +9,7 @@ import { GroupLogo } from '@/components/group-logo';
 import { type Group } from '@/contexts/community';
 import { canManageGroup } from '@/lib/group-permissions';
 import { supabase } from '@/lib/supabase';
+import { hasAcceptedTerms } from '@/lib/moderation';
 
 export function GroupLogoEditor({ group, onSaved }: { group: Group; onSaved: () => Promise<void> }) {
   const [selected, setSelected] = useState<string | null>(null);
@@ -42,17 +44,30 @@ export function GroupLogoEditor({ group, onSaved }: { group: Group; onSaved: () 
   async function save() {
     if (!selected || locked.current) return;
     locked.current = true; setBusy(true); setMessage(null);
+    let uploadedPath: string | null = null;
+    let submitted = false;
     try {
+      if (!await hasAcceptedTerms()) {
+        setMessage('Revisa y acepta los términos antes de subir el logo.');
+        router.push({ pathname: '/legal', params: { section: 'terms' } });
+        return;
+      }
       const data = Platform.OS === 'web' ? await (await fetch(selected)).arrayBuffer() : await new File(selected).arrayBuffer();
       if (!data.byteLength || data.byteLength > 2 * 1024 * 1024) { setMessage('El logo debe pesar menos de 2 MB. Elige otra imagen.'); return; }
       const path = group.id + '/' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.png';
       const upload = await supabase.storage.from('group-logos').upload(path, data, { contentType: 'image/png', upsert: false, cacheControl: '3600' });
       if (upload.error) throw upload.error;
+      uploadedPath = path;
       const update = await supabase.rpc('set_group_logo', { p_group_id: group.id, p_logo_path: path });
       if (update.error) throw update.error;
-      setSelected(null); setMessage('Logo actualizado.');
+      submitted = true;
+      setSelected(null); setMessage('Logo enviado a revisión. El logo anterior seguirá visible hasta su aprobación.');
       await onSaved();
     } catch {
+      if (uploadedPath && !submitted) {
+        // The server prevents removing an image that became referenced or pending.
+        await supabase.storage.from('group-logos').remove([uploadedPath]).catch(() => undefined);
+      }
       setMessage('No pudimos guardar el logo. Revisa tu conexión y que sigas siendo administrador, e inténtalo nuevamente.');
     } finally { locked.current = false; setBusy(false); }
   }
@@ -61,7 +76,7 @@ export function GroupLogoEditor({ group, onSaved }: { group: Group; onSaved: () 
       {selected ? <Image source={{ uri: selected }} accessibilityLabel="Vista previa del nuevo logo" style={{ width: 112, height: 112, borderRadius: 16 }} resizeMode="contain" /> :
         <GroupLogo name={group.name} path={group.logo_url} size={112} />}
     </View>
-    <Text style={ui.muted}>Elige una imagen de tu galería. Se mostrará en el grupo y sus actividades.</Text>
+    <Text style={ui.muted}>Elige una imagen de tu galería. Se mostrará en el grupo y sus actividades después de la revisión.</Text>
     <Button secondary disabled={busy} onPress={() => void choose()}>{selected ? 'Elegir otra imagen' : group.logo_url ? 'Cambiar logo' : 'Elegir logo'}</Button>
     {selected ? <><Button busy={busy} onPress={() => void save()}>Guardar logo</Button><Button secondary disabled={busy} onPress={() => { setSelected(null); setMessage(null); }}>Descartar selección</Button></> : null}
     {message ? <Text accessibilityLiveRegion="polite" style={ui.muted}>{message}</Text> : null}

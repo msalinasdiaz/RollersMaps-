@@ -22,6 +22,7 @@ export default function GroupScreen(){
   const [name,setName]=useState(''),[city,setCity]=useState(''),[description,setDescription]=useState('');
   const [policy,setPolicy]=useState<'open'|'approval'>('approval');
   const adminRequest=useRef(0);
+  const submitting=useRef(false);
   const loadAdmin=useCallback(async()=>{
     const request=++adminRequest.current;
     if(!admin||!id||!user?.id){setMembers([]);setEvents([]);return;}
@@ -33,9 +34,10 @@ export default function GroupScreen(){
   const invalidateAdmin=useCallback(()=>{++adminRequest.current;},[]);
   useEffect(()=>{let active=true;const timer=setTimeout(()=>{if(active)void loadAdmin();},0);return()=>{active=false;invalidateAdmin();clearTimeout(timer);};},[loadAdmin,invalidateAdmin]);
   async function run(fn:()=>PromiseLike<{error:{message:string}|null}>){
-    setBusy(true);setError(null);
+    if(submitting.current)return;
+    submitting.current=true;setBusy(true);setError(null);
     try{const result=await fn();if(result.error){setError(result.error.message);return;}await refresh();await loadAdmin();}
-    catch{setError('No pudimos conectar. Inténtalo nuevamente.');}finally{setBusy(false);}
+    catch{setError('No pudimos conectar. Inténtalo nuevamente.');}finally{submitting.current=false;setBusy(false);}
   }
   function leave(){Alert.alert('Salir del grupo','Se cancelarán tus inscripciones futuras y dejarás de ver su calendario. Tus recorridos personales se conservan.',[{text:'Volver',style:'cancel'},{text:'Salir del grupo',style:'destructive',onPress:()=>void run(()=>supabase.rpc('leave_group',{p_group_id:id}))}]);}
   function manage(m:Member,action:string){
@@ -50,9 +52,11 @@ export default function GroupScreen(){
       {section==='about'||!admin?<>
         <Card><View style={ui.row}><GroupLogo name={group.name} path={group.logo_url} size={64}/><Text style={ui.heading}>{group.name}</Text></View><Text style={ui.text}>{group.description||'Una comunidad para compartir el patinaje.'}</Text><Text style={ui.muted}>{group.member_count} miembros · {group.join_policy==='approval'?'Ingreso por aprobación':'Ingreso abierto'}</Text></Card>
         {group.membership_status==='active'?<><Button onPress={()=>router.navigate('/calendar')}>Ver calendario</Button>{group.membership_role!=='owner'?<Button secondary busy={busy} onPress={leave}>Salir del grupo</Button>:<Text style={ui.muted}>Eres el propietario. Puedes gestionar miembros, actividades y administradores.</Text>}</>:group.membership_status==='pending'?<Notice title="Solicitud pendiente" text="El grupo revisará tu solicitud. Su calendario se habilitará cuando te aprueben." action="Retirar solicitud" onAction={()=>void run(()=>supabase.rpc('leave_group',{p_group_id:id}))}/>:group.membership_status==='blocked'?<Notice title="Acceso suspendido" text="Contacta a los organizadores del grupo para revisar tu membresía."/>:<Button busy={busy} onPress={()=>isSignedIn?void run(()=>supabase.rpc('join_group',{p_group_id:id})):router.push('/auth')}>{group.join_policy==='approval'?'Solicitar ingreso':'Unirme al grupo'}</Button>}
+        <Button secondary onPress={()=>router.push({pathname:'/report-content',params:{kind:'group',targetId:group.id,userId:group.owner_id}})}>Reportar grupo</Button>
         {group.membership_status!=='active'?<Text style={ui.muted}>El calendario, los horarios y los puntos de encuentro están reservados a miembros del grupo.</Text>:null}
       </>:null}
       {admin&&section==='members'?members.length?members.map(m=><Card key={m.user_id}><Text style={ui.heading}>{m.display_name}{m.user_id===user?.id?' · Tú':''}</Text><Text style={ui.muted}>{m.status==='pending'?'Solicitud pendiente':m.status==='blocked'?'Suspendido':m.role==='owner'?'Propietario':m.role==='admin'?'Administrador':'Miembro'}</Text><View style={ui.row}>
+        {m.user_id!==user?.id?<Button secondary onPress={()=>router.push({pathname:'/report-content',params:{kind:'user',targetId:m.user_id}})}>Reportar usuario</Button>:null}
         {m.status==='pending'?<><Button busy={busy} onPress={()=>manage(m,'approve')}>Aprobar</Button><Button secondary disabled={busy} onPress={()=>manage(m,'reject')}>Rechazar</Button></>:null}
         {m.role!=='owner'&&m.user_id!==user?.id&&(m.role!=='admin'||group.membership_role==='owner')&&m.status==='active'?<><Button secondary disabled={busy} onPress={()=>manage(m,'remove')}>Retirar</Button><Button secondary disabled={busy} onPress={()=>manage(m,'block')}>Suspender</Button>{group.membership_role==='owner'?<><Button secondary disabled={busy} onPress={()=>manage(m,m.role==='admin'?'demote':'promote')}>{m.role==='admin'?'Quitar administración':'Hacer administrador'}</Button><Button secondary disabled={busy} onPress={()=>manage(m,'transfer')}>Transferir propiedad</Button></>:null}</>:null}
         {m.status==='blocked'?<Button secondary disabled={busy} onPress={()=>manage(m,'unblock')}>Permitir nueva solicitud</Button>:null}

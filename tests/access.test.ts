@@ -3,7 +3,7 @@ import { createElement, type ReactElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RootLayout from '@/app/_layout';
 
-const session = vi.hoisted(() => ({ isLoading: false, isSignedIn: false, user: null as null | { id: string } }));
+const session = vi.hoisted(() => ({ isLoading: false, isSignedIn: false, isPasswordRecovery: false, isRecoveryLoading: false, user: null as null | { id: string } }));
 vi.mock('@/contexts/demo-session', () => ({
   useDemoSession: () => session,
   DemoSessionProvider: ({ children }: { children: ReactNode }) => children,
@@ -22,6 +22,9 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('expo-router', () => ({
   DarkTheme: {}, DefaultTheme: {},
+  router: { replace: vi.fn() },
+  usePathname: () => '/',
+  useRootNavigationState: () => ({ key: 'navigation-test' }),
   ThemeProvider: ({ children }: { children: ReactNode }) => children,
   Stack: Object.assign(({ children }: { children: ReactNode }) => children, {
     Protected: ({ guard, children }: { guard: boolean; children: ReactNode }) => guard ? children : null,
@@ -37,7 +40,7 @@ const { renderToStaticMarkup } = createRequire(import.meta.url)('react-dom/serve
 function availableScreens() {
   return [...renderToStaticMarkup(createElement(RootLayout)).matchAll(/data-screen="([^"]+)"/g)].map(match => match[1]);
 }
-beforeEach(() => Object.assign(session, { isLoading: false, isSignedIn: false, user: null }));
+beforeEach(() => Object.assign(session, { isLoading: false, isSignedIn: false, isPasswordRecovery: false, isRecoveryLoading: false, user: null }));
 
 describe('Acceso con cuenta, independiente de grupos', () => {
   it('espera la restauración de sesión antes de mostrar pantallas', () => {
@@ -45,16 +48,28 @@ describe('Acceso con cuenta, independiente de grupos', () => {
     expect(availableScreens()).toEqual([]);
   });
   it('sin cuenta solo ofrece bienvenida, autenticación y recuperación de enlaces', () => {
-    expect(availableScreens()).toEqual(['welcome', 'auth', '+not-found']);
+    expect(availableScreens()).toEqual(['welcome', 'auth', 'legal', '+not-found']);
   });
   it('una cuenta sin membresías accede a funciones personales y a descubrir grupos', () => {
     Object.assign(session, { isSignedIn: true, user: { id: 'account-a' } });
-    expect(availableScreens()).toEqual(['(tabs)', 'track', 'group', 'create-group', 'group-requests', 'activity-editor', '+not-found']);
+    expect(availableScreens()).toEqual(['(tabs)', 'track', 'group', 'create-group', 'group-requests', 'activity-editor', 'mapped-routes', 'account', 'report-content', 'moderation', 'legal', '+not-found']);
+  });
+  it('espera la verificación del enlace antes de permitir navegar', () => {
+    Object.assign(session, { isSignedIn: true, user: { id: 'account-a' }, isRecoveryLoading: true });
+    expect(availableScreens()).toEqual([]);
+  });
+  it('una sesión de recuperación abre sólo el cambio de contraseña', () => {
+    Object.assign(session, { isSignedIn: true, user: { id: 'account-a' }, isPasswordRecovery: true });
+    expect(availableScreens()).toEqual(['reset-password', 'legal', '+not-found']);
+  });
+  it('la pantalla de cambio de contraseña exige sesión de recuperación', () => {
+    session.isPasswordRecovery = true;
+    expect(availableScreens()).not.toContain('reset-password');
   });
   it('al cerrar sesión retira todas las pantallas privadas', () => {
     Object.assign(session, { isSignedIn: true, user: { id: 'account-a' } });
     expect(availableScreens()).toContain('track');
     Object.assign(session, { isSignedIn: false, user: null });
-    expect(availableScreens()).toEqual(['welcome', 'auth', '+not-found']);
+    expect(availableScreens()).toEqual(['welcome', 'auth', 'legal', '+not-found']);
   });
 });

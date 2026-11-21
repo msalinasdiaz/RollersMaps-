@@ -45,3 +45,12 @@ example
 # local build tools and temporary work
 /.tools/
 /work/
+
+# Private release material
+/private/
+/release-output/
+*.keystore
+*.apk
+*.aab
+
+/releases/

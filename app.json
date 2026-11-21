@@ -2,15 +2,19 @@
   "expo": {
     "name": "RollersMaps",
     "slug": "rollers-maps",
-    "version": "1.4.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/rollersmaps-app-icon.png",
     "scheme": "rollersmaps",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "ios": {
       "icon": "./assets/images/rollersmaps-app-icon.png",
       "bundleIdentifier": "cl.santiagorollers.rollersmaps",
-      "buildNumber": "26"
+      "buildNumber": "33",
+      "appleTeamId": "K5KBVP74U5",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "blockedPermissions": [
@@ -26,7 +30,7 @@
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "resize",
       "package": "cl.santiagorollers.rollersmaps",
-      "versionCode": 26,
+      "versionCode": 32,
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
@@ -75,6 +79,15 @@
           "photosPermission": "Elige una imagen para el logo de tu grupo.",
           "cameraPermission": false,
           "microphonePermission": false
+        }
+      ],
+      "expo-secure-store",
+      "@react-native-community/datetimepicker",
+      [
+        "expo-widgets",
+        {
+          "frequentUpdates": true,
+          "enablePushNotifications": false
         }
       ]
     ],

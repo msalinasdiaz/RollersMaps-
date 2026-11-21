@@ -1,20 +1,19 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, router, Stack, ThemeProvider, usePathname, useRootNavigationState } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { CommunityProvider } from '@/contexts/community';
 import { DemoSessionProvider, useDemoSession } from '@/contexts/demo-session';
-import { getTrackingSnapshot } from '@/lib/tracking-store';
-import { startActiveLocationService } from '@/tasks/background-location';
+import { getTrackingSnapshot, initializeTrackingDatabaseBackground, reportTrackingError } from '@/lib/tracking-store';
+import { isLocationServiceCancellation, startActiveLocationService } from '@/tasks/background-location';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
   return <DemoSessionProvider>
     <CommunityProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <ThemeProvider value={DarkTheme}>
         <AnimatedSplashOverlay />
         <AppNavigator />
       </ThemeProvider>
@@ -23,36 +22,57 @@ export default function RootLayout() {
 }
 
 function AppNavigator() {
-  const { isLoading, isSignedIn, user } = useDemoSession();
+  const { isLoading, isSignedIn, isPasswordRecovery, isRecoveryLoading, user } = useDemoSession();
   const userId = user?.id;
+  const pathname = usePathname();
+  const navigation = useRootNavigationState();
   useEffect(() => {
-    if (isLoading || !userId) return;
-    const activeSession = getTrackingSnapshot(userId);
-    if (activeSession?.status === 'active' && activeSession.userId === userId) {
-      void startActiveLocationService().catch(() => {
-        // The tracker explains any missing permission when opened.
-      });
+    if (navigation?.key && !isLoading && !isRecoveryLoading && isSignedIn && isPasswordRecovery && pathname !== '/reset-password') {
+      router.replace('/reset-password');
     }
-  }, [isLoading, userId]);
+  }, [navigation?.key, pathname, isLoading, isRecoveryLoading, isSignedIn, isPasswordRecovery]);
+  useEffect(() => {
+    if (isLoading || isRecoveryLoading || isPasswordRecovery || !userId) return;
+    let cancelled = false;
+    void (async () => {
+      try { await initializeTrackingDatabaseBackground(); }
+      catch { return; } // The store retains its actionable persistence error.
+      if (cancelled) return;
+      const activeSession = getTrackingSnapshot(userId);
+      if (activeSession?.status === 'active' && activeSession.userId === userId) {
+        try { await startActiveLocationService(userId); }
+        catch (error) { if (!isLocationServiceCancellation(error)) await reportTrackingError('No pudimos reactivar el GPS. Abre tu recorrido para revisar los permisos.'); }
+      }
+    })().catch(() => { /* The store exposes persistence errors on the tracking screen. */ });
+    return () => { cancelled = true; };
+  }, [isLoading, isRecoveryLoading, isPasswordRecovery, userId]);
 
-  if (isLoading) return <View style={styles.loading}>
+  if (isLoading || isRecoveryLoading) return <View style={styles.loading}>
     <ActivityIndicator color="#FF9A45" />
-    <Text style={styles.loadingText}>Preparando tu cuenta…</Text>
+    <Text style={styles.loadingText}>{isRecoveryLoading ? 'Verificando tu enlace…' : 'Preparando tu cuenta…'}</Text>
   </View>;
 
   return <Stack screenOptions={{ headerShown: false }}>
-    <Stack.Protected guard={!isSignedIn}>
+    <Stack.Protected guard={!isSignedIn && !isPasswordRecovery}>
       <Stack.Screen name="welcome" />
       <Stack.Screen name="auth" />
     </Stack.Protected>
-    <Stack.Protected guard={isSignedIn}>
+    <Stack.Protected guard={isSignedIn && !isPasswordRecovery}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="track" options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="group" />
       <Stack.Screen name="create-group" />
       <Stack.Screen name="group-requests" />
       <Stack.Screen name="activity-editor" />
+      <Stack.Screen name="mapped-routes" />
+      <Stack.Screen name="account" />
+      <Stack.Screen name="report-content" />
+      <Stack.Screen name="moderation" />
     </Stack.Protected>
+    <Stack.Protected guard={isSignedIn && isPasswordRecovery}>
+      <Stack.Screen name="reset-password" />
+    </Stack.Protected>
+    <Stack.Screen name="legal" />
     <Stack.Screen name="+not-found" />
   </Stack>;
 }

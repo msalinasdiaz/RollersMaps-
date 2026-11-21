@@ -5,6 +5,7 @@ import { toAppActivity, type AppActivity, type PublishedActivityRow } from '@/da
 import { supabase } from '@/lib/supabase';
 
 export type Group = {
+  owner_id?: string;
   id: string; slug: string; name: string; description: string; city: string; logo_url: string | null;
   join_policy: 'open' | 'approval'; member_count: number;
   approval_status?: 'approved' | 'pending' | 'rejected'; approval_expires_at?: string | null;
@@ -63,3 +64,4 @@ export function useCommunity() {
   if (!value) throw new Error('CommunityProvider requerido.');
   return value;
 }
+
